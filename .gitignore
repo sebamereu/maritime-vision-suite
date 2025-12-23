@@ -39,3 +39,42 @@
 
 # debug information files
 *.dwo
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# =========================
+# Datasets / Data
+# =========================
+data/
+datasets/
+video_data/
+annotations*/
+*.mp4
+*.avi
+*.mov
+*.jpg
+*.png
+*.mat
+
+# =========================
+# IDE / OS
+# =========================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs / Outputs
+# =========================
+runs/
+outputs/
+checkpoints/
