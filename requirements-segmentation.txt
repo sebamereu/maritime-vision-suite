@@ -1,0 +1,7 @@
+# Extra dependency for segmentation/ (CNN model, train_segmentation.py).
+# Not needed for the classical horizon baseline or detection/ — kept
+# separate so the base install stays light.
+#
+# Install from the CPU-only index, or pip pulls a much larger CUDA build:
+#   pip install -r requirements-segmentation.txt --index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1

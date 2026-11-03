@@ -23,14 +23,9 @@ point.
 
 ## Roadmap
 
-- [x] **Sea/sky horizon detection (classical baseline)** — see below; a
-  learned segmentation model is still open (next item)
-- [ ] **Sea/sky segmentation (learned model)** — a CNN to replace the
-  single-line baseline, which cannot represent a coastline or an obstacle
-  straddling the horizon, using
-  [MaSTr1325](https://box.vicos.si/borja/viamaro/index.html) / [LaRS](https://lojzezust.github.io/lars-dataset/)
-  (semantic segmentation of sea/sky/obstacles from USV-mounted cameras —
-  close match for a mast-camera viewpoint)
+- [x] **Sea/sky horizon detection (classical baseline)** — see below
+- [x] **Sea/sky segmentation (learned model)** — see below; replaces the
+  single-line baseline with a CNN that handles coastline/obstacles directly
 - [ ] **Boat detection** — YOLO fine-tuned on sailing footage, combining
   [Singapore Maritime Dataset (SMD)](https://sites.google.com/site/dilipprasad/home/singapore-maritime-dataset)
   and [SeaShips](https://github.com/jiaming-wang/SeaShips) with footage from
@@ -135,6 +130,73 @@ Generate overlays for the whole sample with:
 python scripts/visualize_horizon.py
 # writes to data/outputs/horizon_overlays/ (gitignored, regenerate locally)
 ```
+
+## Sea/sky segmentation (learned model)
+
+`segmentation/src/model.py` is a small U-Net (3 down/up stages, base
+width 16, ~1.9M params) trained from scratch — no pretrained weights, no
+GPU, on CPU in 22 minutes on the full MaSTr1325 dataset. It predicts a
+per-pixel class (obstacle/water/sky) directly, so unlike the single-line
+baseline it isn't structurally blind to coastline or obstacles.
+
+Training: 1325 images, 1127 train / 198 val (fixed 85/15 split, seed 42),
+30 epochs, Adam, images resized to 192×256, best checkpoint kept by val
+mIoU (not just the last epoch — training was noisy, with two epochs
+dropping to 0.37 and 0.90 mIoU before recovering, likely the LR being a
+bit high for this model size).
+
+```bash
+pip install -r requirements-segmentation.txt --index-url https://download.pytorch.org/whl/cpu
+python scripts/train_segmentation.py --epochs 30
+```
+
+**Results on the full 198-image validation set — 100% of it, not 31%:**
+
+```
+Best val mIoU: 0.9810
+Per-class IoU:
+  obstacle  : 0.9543
+  water     : 0.9921
+  sky       : 0.9967
+Pixel accuracy: 0.9957
+```
+
+This is the direct payoff of switching from a geometric assumption to a
+learned model: the classical baseline could only be scored on columns
+with a clean sky/water transition (31% of the dataset) and still landed
+around 15.6px MAE; the CNN is scored on every validation image, full
+frame, and reaches 0.981 mIoU. The two numbers aren't on the same scale
+(pixel error vs IoU), so treat this as "handles the other 69% of cases
+the baseline couldn't touch at all," not a like-for-like percentage
+comparison.
+
+**Visual comparison** (predicted vs ground truth, same color coding as
+above):
+
+| Best (mIoU 1.000) | Median (mIoU 0.988) | Worst (mIoU 0.787) |
+|---|---|---|
+| ![best](docs/examples/segmentation_best.jpg) | ![median](docs/examples/segmentation_median.jpg) | ![worst](docs/examples/segmentation_worst.jpg) |
+
+Median shows a complex coastline (trees, buildings, a small buoy) matched
+almost pixel-for-pixel — the case that broke the straight-line baseline
+outright. Even the worst case is a minor disagreement on exactly where an
+obstacle's far edge ends under an ambiguous (ignore-labelled) boundary
+region, not a structural failure like the baseline's haze/horizon
+confusion.
+
+Run it yourself (needs a trained checkpoint, see above):
+
+```bash
+python scripts/visualize_segmentation.py
+```
+
+**Known limitations, not hidden:** trained on 1325 images from one
+geographic area (gulf of Koper, Slovenia) with a fixed USV camera height
+— generalization to a mast-mounted camera on a sailing boat, different
+water/lighting conditions, and open-ocean scenes with no coastline at all
+is untested, not assumed. The training instability (two mid-training mIoU
+drops) also suggests the learning rate schedule is worth revisiting before
+this becomes anything more than a baseline for the next stage.
 
 ## Datasets
 
