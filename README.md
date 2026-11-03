@@ -57,6 +57,26 @@ point.
 - [x] Unit tests + CI
 - [x] Remove hardcoded local video path, read from `config.py` / CLI arg
 
+## Datasets
+
+- **[MaSTr1325](https://box.vicos.si/borja/viamaro/index.html)** (CC BY 4.0,
+  Bovcon et al., IROS 2019) — 1325 USV-camera images with per-pixel
+  sea/sky/obstacle masks. A reproducible 50-image sample is fetched with:
+
+  ```bash
+  python scripts/fetch_mastr1325_sample.py
+  ```
+
+  This downloads the full dataset into `data/_cache/` (gitignored) and
+  copies a fixed-seed sample into `data/datasets/mastr1325_sample/`.
+
+- **[LaRS](https://lojzezust.github.io/lars-dataset/)** (ICCV 2023) — larger
+  and more diverse panoptic maritime dataset, gated behind a request form
+  (name/email/affiliation/intended use). Not yet requested.
+
+Neither dataset has sailing-specific gust/wind-zone annotations — no such
+dataset exists (see roadmap above); that stage is unsupervised by design.
+
 ## Requirements
 
 ```
