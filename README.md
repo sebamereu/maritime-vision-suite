@@ -99,6 +99,23 @@ python scripts/fetch_mastr1325_sample.py   # if not done already
 python scripts/evaluate_horizon.py
 ```
 
+**Visual results** — red is the predicted horizon, green dots are ground
+truth (only drawn on the clean columns the metric actually scores):
+
+| Best (0.4px) | Median (4.3px) | Worst (38.5px) |
+|---|---|---|
+| ![best](docs/examples/horizon_best.jpg) | ![median](docs/examples/horizon_median.jpg) | ![worst](docs/examples/horizon_worst.jpg) |
+
+The worst case shows the real failure mode: the Hough-based line latched
+onto a haze/cloud band above the true horizon instead of the water line —
+not a coastline problem, a contrast problem. Generate overlays for the
+whole sample with:
+
+```bash
+python scripts/visualize_horizon.py
+# writes to data/outputs/horizon_overlays/ (gitignored, regenerate locally)
+```
+
 ## Datasets
 
 - **[MaSTr1325](https://box.vicos.si/borja/viamaro/index.html)** (CC BY 4.0,
