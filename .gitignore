@@ -64,6 +64,10 @@ annotations*/
 *.png
 *.mat
 
+# ...except small example images committed on purpose for the README
+!docs/examples/*.jpg
+!docs/examples/*.png
+
 # =========================
 # IDE / OS
 # =========================
