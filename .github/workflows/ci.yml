@@ -30,7 +30,7 @@ jobs:
           pip install pytest ruff
 
       - name: Lint
-        run: ruff check detection/python
+        run: ruff check detection/python segmentation scripts
 
       - name: Test
-        run: pytest detection/python -v
+        run: pytest detection/python segmentation/tests -v

@@ -23,7 +23,11 @@ point.
 
 ## Roadmap
 
-- [ ] **Sea/sky segmentation** — horizon detection, using
+- [x] **Sea/sky horizon detection (classical baseline)** — see below; a
+  learned segmentation model is still open (next item)
+- [ ] **Sea/sky segmentation (learned model)** — a CNN to replace the
+  single-line baseline, which cannot represent a coastline or an obstacle
+  straddling the horizon, using
   [MaSTr1325](https://box.vicos.si/borja/viamaro/index.html) / [LaRS](https://lojzezust.github.io/lars-dataset/)
   (semantic segmentation of sea/sky/obstacles from USV-mounted cameras —
   close match for a mast-camera viewpoint)
@@ -56,6 +60,44 @@ point.
 - [ ] Latency benchmarks (p50/p99) on target hardware
 - [x] Unit tests + CI
 - [x] Remove hardcoded local video path, read from `config.py` / CLI arg
+
+## Sea/sky horizon detection (classical baseline)
+
+`segmentation/src/horizon.py` estimates the horizon as a single straight
+line per frame: Canny edges, probabilistic Hough transform to find
+near-horizontal segments, weighted least-squares fit across them. No
+training, no GPU — a measurable starting point before a learned model.
+
+**Limitation by construction:** a straight line can't represent a
+coastline or an obstacle crossing the horizon. `evaluate_horizon.py` scores
+the detector only on mask columns that are a clean sky-then-water
+transition, and reports what fraction of columns actually qualify — so the
+number isn't silently inflated by skipping the hard cases.
+
+Measured on the 50-image MaSTr1325 sample (`scripts/evaluate_horizon.py`):
+
+```
+Images evaluated: 18 (skipped: 32 — no clean sky/water columns, e.g. coastline fills the frame)
+Mean fraction of columns with clean ground truth: 32.5%
+Pixel error over all valid columns, all images:
+  MAE:    19.5 px
+  Median: 27.0 px
+Per-image MAE: mean 12.3 px, worst 38.5 px, best 0.4 px
+```
+
+Per-image mean MAE (12.3px) lands in the same range as published deep
+segmentation baselines on the related MODD2 benchmark (SegNet 13.5px,
+PSPNet 13.8px — see [MODD2 leaderboard](https://box.vicos.si/borja/viamaro/index.html)),
+but on a much easier, cherry-picked subset of columns and only a third of
+the sample images at all — this is a baseline to beat, not a result to
+lean on.
+
+Run it yourself:
+
+```bash
+python scripts/fetch_mastr1325_sample.py   # if not done already
+python scripts/evaluate_horizon.py
+```
 
 ## Datasets
 
