@@ -1,14 +1,12 @@
 # main.py
-import time
-import cv2
-
-from video_loader import open_video
 import config
+import cv2
+from fps import compute_fps
+from video_loader import open_video
+
 
 def main():
-    cap = cv2.VideoCapture(r"C:\Users\sebam\Desktop\maritime-vision-suite\data\videos\sample.mp4")
-    if not cap.isOpened():
-        raise IOError("Cannot open video")
+    cap = open_video(str(config.VIDEO_PATH))
 
     prev_time = None
 
@@ -18,13 +16,7 @@ def main():
             break
 
         current_time = cv2.getTickCount() / cv2.getTickFrequency()
-
-        if prev_time is None:
-            fps = 0.0
-        else:
-            delta = current_time - prev_time
-            fps = 1.0 / delta if delta > 0 else 0.0
-
+        fps = compute_fps(prev_time, current_time)
         prev_time = current_time
 
         if config.SHOW_FPS:
@@ -38,7 +30,6 @@ def main():
 
     cap.release()
     cv2.destroyAllWindows()
-
 
 
 if __name__ == "__main__":

@@ -21,8 +21,8 @@ frame-ingestion layer everything else will be built on.
 - [ ] Object detection stage (YOLO/ONNX Runtime) on video frames
 - [ ] Event-based camera ingestion and tracking
 - [ ] Latency benchmarks (p50/p99) on target hardware
-- [ ] Unit tests + CI
-- [ ] Remove hardcoded local video path, read from `config.py` / CLI arg
+- [x] Unit tests + CI
+- [x] Remove hardcoded local video path, read from `config.py` / CLI arg
 
 ## Requirements
 
@@ -43,6 +43,17 @@ python detection/python/src/main.py
 
 Place an input video at `data/videos/sample.mp4` (path configurable in
 `config.py`).
+
+## Testing
+
+```bash
+pip install pytest ruff
+ruff check detection/python
+pytest detection/python -v
+```
+
+Runs on every push/PR via GitHub Actions (`.github/workflows/ci.yml`),
+on Python 3.10 and 3.11.
 
 ## License
 
