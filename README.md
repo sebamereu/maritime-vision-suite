@@ -74,28 +74,38 @@ the detector only on mask columns that are a clean sky-then-water
 transition, and reports what fraction of columns actually qualify — so the
 number isn't silently inflated by skipping the hard cases.
 
-Measured on the 50-image MaSTr1325 sample (`scripts/evaluate_horizon.py`):
+Measured on the **full** MaSTr1325 dataset, 1325 images
+(`scripts/evaluate_horizon.py`):
 
 ```
-Images evaluated: 18 (skipped: 32 — no clean sky/water columns, e.g. coastline fills the frame)
-Mean fraction of columns with clean ground truth: 32.5%
+Images evaluated: 414 (skipped: 911 — no clean sky/water columns, e.g. coastline or a large obstacle fills the frame)
+Mean fraction of columns with clean ground truth: 31.0%
 Pixel error over all valid columns, all images:
-  MAE:    19.5 px
-  Median: 27.0 px
-Per-image MAE: mean 12.3 px, worst 38.5 px, best 0.4 px
+  MAE:    16.5 px
+  Median: 7.1 px
+  Std:    16.8 px
+Per-image MAE: mean 15.6 px, worst 77.1 px, best 0.2 px
 ```
 
-Per-image mean MAE (12.3px) lands in the same range as published deep
+Two things worth being upfront about. First, **69% of the dataset (911/1325
+images) has no column this metric can even score** — the straight-line
+assumption isn't just imprecise on those, it's inapplicable, and that
+fraction is the more honest signal than the pixel error itself. Second,
+per-image mean MAE (15.6px) is in the same range as published deep
 segmentation baselines on the related MODD2 benchmark (SegNet 13.5px,
-PSPNet 13.8px — see [MODD2 leaderboard](https://box.vicos.si/borja/viamaro/index.html)),
-but on a much easier, cherry-picked subset of columns and only a third of
-the sample images at all — this is a baseline to beat, not a result to
-lean on.
+PSPNet 13.8px — see [MODD2 leaderboard](https://box.vicos.si/borja/viamaro/index.html))
+— but again only on the third of images with an easy, mostly-open-water
+scene, and with a long tail: worst case 77.1px. This is a baseline to
+beat, not a result to lean on.
+
+(An earlier 50-image dev sample gave a rosier-looking 12.3px mean MAE —
+the gap shows why evaluating on a tiny sample before scaling up would have
+been misleading.)
 
 Run it yourself:
 
 ```bash
-python scripts/fetch_mastr1325_sample.py   # if not done already
+python scripts/fetch_mastr1325_sample.py --n 1325   # the whole dataset
 python scripts/evaluate_horizon.py
 ```
 
@@ -107,17 +117,17 @@ missing data. Right: the full ground-truth mask with nothing filtered out
 (orange=sky, blue=water, red=obstacle, gray=ignore), so you can always see
 what the left panel's green dots are a subset of.
 
-| Best (0.4px) | Median (4.3px) | Worst (38.5px) |
+| Best (0.2px) | Median (6.4px) | Worst (77.1px) |
 |---|---|---|
 | ![best](docs/examples/horizon_best.jpg) | ![median](docs/examples/horizon_median.jpg) | ![worst](docs/examples/horizon_worst.jpg) |
 
-The median example shows why: MaSTr1325 labels coastline as obstacle, and
-coastline dominates most of the frame width in a lot of these images — only
-the small strip of open water on the right has a clean sky/water column to
-score. The worst case shows the detector's real failure mode: the
-Hough-based line latched onto a haze/cloud band above the true horizon
-(clearly visible as the gap between the red line and the blue water region
-on the right panel) — not a coastline problem, a contrast problem.
+The median example shows a ship sitting on the horizon with a mild slope
+mismatch between predicted and ground truth — the kind of error a learned
+model should close. The worst case is a large obstacle (a pier/mooring
+structure) filling most of the frame under heavy haze: only a thin strip
+of open water is left to score, and the line locks onto the haze band well
+above the real waterline — visible directly by comparing the red line
+against the blue water region on the right panel.
 
 Generate overlays for the whole sample with:
 
