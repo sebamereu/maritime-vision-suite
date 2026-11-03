@@ -28,13 +28,17 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -r requirements-segmentation.txt --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+          pip install -r requirements-detection.txt --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
           pip install pytest ruff
 
       - name: Lint
-        run: ruff check detection/python segmentation scripts
+        run: ruff check detection/python segmentation scripts boat_detection
 
       # Fast unit tests only (model forward-pass shape, dataset loading,
-      # metrics math) — real training (scripts/train_segmentation.py) is
-      # too slow/heavy to run on every push and is done locally instead.
+      # metrics math) — real training (scripts/train_segmentation.py,
+      # scripts/train_boat_detection.py) is too slow/heavy to run on
+      # every push and is done locally instead. boat_detection's tests
+      # do pull the small (~6MB) pretrained yolov8n.pt checkpoint from
+      # ultralytics on first run.
       - name: Test
-        run: pytest detection/python segmentation/tests -v
+        run: pytest detection/python segmentation/tests boat_detection/tests -v

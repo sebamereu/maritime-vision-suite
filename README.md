@@ -26,11 +26,11 @@ point.
 - [x] **Sea/sky horizon detection (classical baseline)** — see below
 - [x] **Sea/sky segmentation (learned model)** — see below; replaces the
   single-line baseline with a CNN that handles coastline/obstacles directly
-- [ ] **Boat detection** — YOLO fine-tuned on sailing footage, combining
-  [Singapore Maritime Dataset (SMD)](https://sites.google.com/site/dilipprasad/home/singapore-maritime-dataset)
-  and [SeaShips](https://github.com/jiaming-wang/SeaShips) with footage from
-  public race broadcasts (America's Cup / SailGP) for the sailing-specific
-  gap neither dataset covers
+- [x] **Boat detection (YOLOv8n, zero-shot baseline + fine-tuned on
+  SeaShips)** — see below. [Singapore Maritime Dataset
+  (SMD)](https://sites.google.com/site/dilipprasad/home/singapore-maritime-dataset)
+  and footage from public race broadcasts (America's Cup / SailGP) are not
+  yet integrated — see Known limitations below
 - [ ] **Wind-zone detection** — no dataset or prior work exists for this, so
   it's framed as an **unsupervised** problem, not classification:
   - Segment relatively rougher/darker water patches (gusts/"cat's paws")
@@ -198,6 +198,91 @@ is untested, not assumed. The training instability (two mid-training mIoU
 drops) also suggests the learning rate schedule is worth revisiting before
 this becomes anything more than a baseline for the next stage.
 
+## Boat detection
+
+`boat_detection/src/model.py` wraps [ultralytics
+YOLOv8n](https://github.com/ultralytics/ultralytics) — COCO-pretrained,
+~3M params, already ships a "boat" class. `boat_detection/src/dataset.py`
+converts [SeaShips(7000)](#datasets)'s Pascal VOC annotations to YOLO
+labels, collapsing its six ship-type classes (cargo carrier, container
+ship, fishing boat, etc.) into one: this project asks "is there a boat",
+not ship taxonomy.
+
+Measured the same way as the horizon baseline — a number before any
+training, not a result to lean on — on a fixed-seed 150-image sample (120
+train / 30 val, 34 ground-truth boxes), using ultralytics' own `val()`
+rather than a hand-rolled metric (see below for why):
+
+```
+                              mAP50    mAP50-95   Precision   Recall
+Zero-shot (stock yolov8n.pt)  0.975     0.589      1.000      0.971
+Fine-tuned (30 epochs)        0.975     0.577      1.000      0.971
+```
+
+```bash
+pip install -r requirements-detection.txt --index-url https://download.pytorch.org/whl/cpu
+python scripts/fetch_seaships_sample.py --n 150
+python scripts/evaluate_boat_detection.py                                        # zero-shot
+python scripts/train_boat_detection.py --epochs 30                               # fine-tune
+python scripts/evaluate_boat_detection.py --checkpoint data/checkpoints/yolov8n_boats.pt
+```
+
+**The honest reading of this:** fine-tuning did not clearly beat the
+zero-shot baseline here — mAP50-95 is marginally *worse* after
+fine-tuning (0.577 vs 0.589). This isn't the result I expected, and I'm
+reporting it rather than cherry-picking a more flattering run. The likely
+explanation: SeaShips ships (cargo carriers, container ships, tankers)
+are large, high-contrast rectangular hulls on open water — visually
+generic enough that COCO's own "boat" class, trained on a huge diverse
+set of real-world boat photos, already generalizes to them zero-shot. 120
+training images for 30 epochs wasn't enough signal to clearly beat an
+already-strong baseline on this metric. A harder, more sailing-specific
+dataset (SMD, or actual race footage, see Known limitations below) is a
+more likely place for fine-tuning to actually pay off.
+
+**On the metric itself:** an earlier version of this evaluation used a
+hand-rolled IoU-matching AP (same approach as `evaluate_horizon.py`). It
+turned out to be mathematically correct — verified line-for-line against
+ultralytics' own `ap_per_class` fed identical inputs — but wildly
+unstable on a validation set this small (34 boxes): a handful of
+overlapping candidate boxes on a couple of cluttered images (one
+elongated ore carrier spanning almost the full frame produced ~140
+overlapping candidate boxes) can flip which single detection gets
+credited as *the* match, swinging the reported number by 50+ points
+(0.43 vs 0.975 on the exact same checkpoint) without the model changing
+at all. Rather than present a self-built metric with that much variance
+as a real result, `evaluate_boat_detection.py` now uses ultralytics' own
+validator directly — including for the zero-shot case, via a second
+label set that relabels ground truth at COCO's own "boat" class index so
+the un-fine-tuned 80-class model can be scored fairly. This instability
+is itself the more honest takeaway than either individual number: mAP on
+a 30-image eval set is noisy, full stop.
+
+**Visual comparison** (red: predicted, green: ground truth, same
+fine-tuned checkpoint as above):
+
+| Best (IoU 0.90) | Median (IoU 0.36) | Worst (IoU 0.00) |
+|---|---|---|
+| ![best](docs/examples/boat_detection_best.jpg) | ![median](docs/examples/boat_detection_median.jpg) | ![worst](docs/examples/boat_detection_worst.jpg) |
+
+The worst case is a small boat moored at the shoreline, blending into the
+dock/building clutter behind it — a real failure mode, not a labeling
+artifact (visible by comparing against the ground-truth panel). The
+median case shows two moored ships close together scored as one merged
+detection instead of two — a localization error, not a missed detection.
+
+**Known limitations, not hidden:** SeaShips is shore-camera footage of
+commercial shipping at a fixed Chinese port — a real domain gap from a
+mast-mounted camera on a sailing boat in open water (different hull
+shapes, no recreational sailboats at all, fixed camera vs. a moving,
+vibrating mast). SMD and actual race-broadcast footage (America's Cup /
+SailGP) are not yet integrated: SMD ships as raw multi-GB video with a
+custom per-frame ground-truth format (horizon + tracking + detection
+combined), which needs its own frame-extraction and parsing pipeline —
+a separate chunk of work from this stage. The 150-image sample (vs. the
+full 7000) and 30-epoch run are both quick-start defaults, not a
+ceiling — `--n` and `--epochs` scale both up.
+
 ## Datasets
 
 - **[MaSTr1325](https://box.vicos.si/borja/viamaro/index.html)** (CC BY 4.0,
@@ -221,8 +306,22 @@ this becomes anything more than a baseline for the next stage.
   and more diverse panoptic maritime dataset, gated behind a request form
   (name/email/affiliation/intended use). Not yet requested.
 
-Neither dataset has sailing-specific gust/wind-zone annotations — no such
-dataset exists (see roadmap above); that stage is unsupervised by design.
+- **[SeaShips(7000)](https://sites.ucmerced.edu/files/wdu/files/seaship.pdf)**
+  (Shao et al., IEEE Transactions on Multimedia, 2018) — 7000 images of
+  commercial ships at a Chinese coastal port, Pascal VOC boxes across six
+  ship-type classes. The original paper has no clearly published
+  redistribution license of its own; this project fetches a [public
+  Hugging Face mirror](https://huggingface.co/datasets/datnguyentien204/Seaship7000)
+  for the same academic/portfolio research use the dataset is normally
+  cited for. A reproducible sample is fetched with:
+
+  ```bash
+  python scripts/fetch_seaships_sample.py --n 150
+  ```
+
+None of these datasets have sailing-specific gust/wind-zone annotations —
+no such dataset exists (see roadmap above); that stage is unsupervised by
+design.
 
 ## Requirements
 

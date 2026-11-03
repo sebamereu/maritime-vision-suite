@@ -82,3 +82,7 @@ Thumbs.db
 runs/
 outputs/
 checkpoints/
+
+# ultralytics auto-downloads pretrained weights (e.g. yolov8n.pt) into
+# the current working directory on first use
+*.pt

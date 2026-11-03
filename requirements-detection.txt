@@ -1,0 +1,12 @@
+# Extra dependency for boat_detection/ (YOLO wrapper, train/evaluate/
+# visualize scripts). Not needed for the classical horizon baseline or
+# segmentation/ -- kept separate so the base install stays light.
+#
+# Pulls in torch itself; install from the CPU-only index, or pip grabs a
+# much larger CUDA build:
+#   pip install -r requirements-detection.txt --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+#
+# Pinned against the same torch==2.14.1 already used by
+# requirements-segmentation.txt.
+torch==2.14.1
+ultralytics==8.4.123
