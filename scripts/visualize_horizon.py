@@ -2,11 +2,19 @@
 """Draw the predicted horizon line against ground truth on sample images,
 so the numbers in evaluate_horizon.py can actually be looked at.
 
-Red   = predicted horizon (segmentation/src/horizon.py), drawn across the
-        full width.
-Green = ground-truth horizon, drawn only on columns with a clean sky/water
-        transition (see ground_truth.py) — gaps in the green line are
-        columns the metric itself excludes (coastline, obstacles).
+Each output image is two panels side by side:
+
+LEFT  — the scoring view:
+  Red   = predicted horizon (segmentation/src/horizon.py), full width.
+  Green = ground-truth horizon, drawn ONLY on columns with a clean
+          sky/water transition (see ground_truth.py). Gaps are columns
+          the metric excludes (coastline, obstacles) — on a coastline
+          -heavy image this panel can look almost empty, which is
+          correct, not a bug: see the right panel for the full picture.
+
+RIGHT — the actual ground truth, nothing hidden:
+  The full MaSTr1325 semantic mask blended over the frame — orange=sky,
+  blue=water, red=obstacle/environment, gray=ignore region.
 
 Usage:
     python scripts/visualize_horizon.py
@@ -20,23 +28,50 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "segmentation" / "src"))
-from ground_truth import horizon_from_mask
+from ground_truth import IGNORE, OBSTACLE, SKY, WATER, horizon_from_mask
 from horizon import detect_horizon
 
+MASK_COLORS_BGR = {
+    SKY: (60, 170, 255),       # orange
+    WATER: (255, 120, 40),     # blue
+    OBSTACLE: (0, 0, 255),     # red
+    IGNORE: (128, 128, 128),   # gray
+}
 
-def draw_overlay(frame: np.ndarray, predicted: np.ndarray,
-                  valid_columns: np.ndarray, gt_rows: np.ndarray) -> np.ndarray:
-    overlay = frame.copy()
+
+def draw_scoring_panel(frame: np.ndarray, predicted: np.ndarray,
+                        valid_columns: np.ndarray, gt_rows: np.ndarray) -> np.ndarray:
+    panel = frame.copy()
     width = frame.shape[1]
     rows = np.round(predicted).astype(int)
 
     for x in range(width - 1):
-        cv2.line(overlay, (x, rows[x]), (x + 1, rows[x + 1]), (0, 0, 255), 1)  # BGR red
+        cv2.line(panel, (x, rows[x]), (x + 1, rows[x + 1]), (0, 0, 255), 1)  # BGR red
 
     for x, y in zip(valid_columns, gt_rows):
-        cv2.circle(overlay, (int(x), int(y)), 1, (0, 200, 0), -1)  # BGR green
+        cv2.circle(panel, (int(x), int(y)), 1, (0, 200, 0), -1)  # BGR green
 
-    return overlay
+    cv2.putText(panel, "predicted (red) vs scored GT (green)", (6, 16),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
+    return panel
+
+
+def draw_mask_panel(frame: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    colored = np.zeros_like(frame)
+    for label, color in MASK_COLORS_BGR.items():
+        colored[mask == label] = color
+
+    panel = cv2.addWeighted(frame, 0.55, colored, 0.45, 0)
+    cv2.putText(panel, "full ground truth: sky/water/obstacle/ignore", (6, 16),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
+    return panel
+
+
+def draw_overlay(frame: np.ndarray, mask: np.ndarray, predicted: np.ndarray,
+                  valid_columns: np.ndarray, gt_rows: np.ndarray) -> np.ndarray:
+    scoring = draw_scoring_panel(frame, predicted, valid_columns, gt_rows)
+    full_gt = draw_mask_panel(frame, mask)
+    return cv2.hconcat([scoring, full_gt])
 
 
 def main():
@@ -66,7 +101,7 @@ def main():
         predicted = detect_horizon(frame)
         valid_cols, gt_rows = horizon_from_mask(mask)
 
-        overlay = draw_overlay(frame, predicted, valid_cols, gt_rows)
+        overlay = draw_overlay(frame, mask, predicted, valid_cols, gt_rows)
         out_path = output_dir / img_path.name
         cv2.imwrite(str(out_path), overlay)
 

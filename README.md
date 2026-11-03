@@ -99,17 +99,27 @@ python scripts/fetch_mastr1325_sample.py   # if not done already
 python scripts/evaluate_horizon.py
 ```
 
-**Visual results** — red is the predicted horizon, green dots are ground
-truth (only drawn on the clean columns the metric actually scores):
+**Visual results** — each image is two panels. Left: red is the predicted
+horizon, green dots are ground truth but **only drawn on the clean columns
+the metric actually scores** (no coastline/obstacles in that column) — on
+a coastline-heavy image this can look nearly empty, which is correct, not
+missing data. Right: the full ground-truth mask with nothing filtered out
+(orange=sky, blue=water, red=obstacle, gray=ignore), so you can always see
+what the left panel's green dots are a subset of.
 
 | Best (0.4px) | Median (4.3px) | Worst (38.5px) |
 |---|---|---|
 | ![best](docs/examples/horizon_best.jpg) | ![median](docs/examples/horizon_median.jpg) | ![worst](docs/examples/horizon_worst.jpg) |
 
-The worst case shows the real failure mode: the Hough-based line latched
-onto a haze/cloud band above the true horizon instead of the water line —
-not a coastline problem, a contrast problem. Generate overlays for the
-whole sample with:
+The median example shows why: MaSTr1325 labels coastline as obstacle, and
+coastline dominates most of the frame width in a lot of these images — only
+the small strip of open water on the right has a clean sky/water column to
+score. The worst case shows the detector's real failure mode: the
+Hough-based line latched onto a haze/cloud band above the true horizon
+(clearly visible as the gap between the red line and the blue water region
+on the right panel) — not a coastline problem, a contrast problem.
+
+Generate overlays for the whole sample with:
 
 ```bash
 python scripts/visualize_horizon.py
@@ -127,7 +137,13 @@ python scripts/visualize_horizon.py
   ```
 
   This downloads the full dataset into `data/_cache/` (gitignored) and
-  copies a fixed-seed sample into `data/datasets/mastr1325_sample/`.
+  copies a fixed-seed sample into `data/datasets/mastr1325_sample/`. 50
+  is a quick-start default, not a training set — the full dataset is only
+  ~24MB, so for anything beyond a quick look at the baseline, pull more:
+
+  ```bash
+  python scripts/fetch_mastr1325_sample.py --n 1325   # the whole dataset
+  ```
 
 - **[LaRS](https://lojzezust.github.io/lars-dataset/)** (ICCV 2023) — larger
   and more diverse panoptic maritime dataset, gated behind a request form
