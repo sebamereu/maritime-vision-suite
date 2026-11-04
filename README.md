@@ -370,8 +370,19 @@ Place an input video at `data/videos/sample.mp4` (path configurable in
 
 ```bash
 pip install pytest ruff
-ruff check detection/python
+pip install -r requirements-segmentation.txt --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+pip install -r requirements-detection.txt --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+
+ruff check detection/python segmentation scripts boat_detection
+
+# Run these separately, not combined into one `pytest a b c` call:
+# segmentation/src/ and boat_detection/src/ both have same-named modules
+# (model.py, dataset.py, metrics.py) added to sys.path by their
+# conftest.py; collected together, the second package's imports
+# silently resolve to the first package's modules.
 pytest detection/python -v
+pytest segmentation/tests -v
+pytest boat_detection/tests -v
 ```
 
 Runs on every push/PR via GitHub Actions (`.github/workflows/ci.yml`),

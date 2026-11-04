@@ -40,5 +40,20 @@ jobs:
       # every push and is done locally instead. boat_detection's tests
       # do pull the small (~6MB) pretrained yolov8n.pt checkpoint from
       # ultralytics on first run.
+      #
+      # Run as three SEPARATE pytest invocations, not one combined
+      # `pytest detection/python segmentation/tests boat_detection/tests`.
+      # segmentation/src/ and boat_detection/src/ both put same-named
+      # modules (model.py, dataset.py, metrics.py) on sys.path via their
+      # conftest.py; collected in one pytest process, the second
+      # package's imports silently resolve to the first package's
+      # modules instead (Python's module cache is keyed by bare name).
+      # This is a real landmine, not just a CI quirk — don't combine
+      # these locally either, and don't add a 4th module with another
+      # model.py/dataset.py pair without fixing this properly (proper
+      # packages + qualified imports) first.
       - name: Test
-        run: pytest detection/python segmentation/tests boat_detection/tests -v
+        run: |
+          pytest detection/python -v
+          pytest segmentation/tests -v
+          pytest boat_detection/tests -v
