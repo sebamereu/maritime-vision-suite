@@ -416,13 +416,32 @@ on the fine-tuning dataset told the opposite story from testing on
 real target-domain photos at every single step** — the better-looking
 number was the wrong signal all three times.
 
-Both fine-tuning attempts used the lighter-touch choices the first
-failure motivated (10 epochs, not 40; a visually varied mix, not a
-single narrow source) — not yet tried: more epochs on this specific
-3-source mix, a larger Roboflow sailboat sample (1,200 of the
-available 7,113 were used), or an explicit general-feature-preserving
-training method (frozen backbone layers, EWC-style regularization,
-lower learning rate). None of that is implemented here yet.
+**Does more training on this 3-source mix help further, or start
+re-triggering the same forgetting?** Both — a genuine trade-off, not a
+clean win. 25 epochs instead of 10 on the same data:
+
+| | 4 classic sailboat photos | 11 AC75/foiling photos |
+|---|---|---|
+| 3-source mix, 10 epochs | 7 boxes, 0 missed | 32 boxes, 0 missed |
+| 3-source mix, 25 epochs | **11 boxes, 0 missed** | 26 boxes, **1 missed** |
+
+Classic-sailboat detection improved (closer to zero-shot's 14), but
+AC75 performance regressed — including missing a frame the 10-epoch
+checkpoint caught, where two AC75s overlap with their sails nearly
+vertical and little hull visible, a pose that looks nothing like the
+hull-plus-triangular-sail shape Roboflow's dataset mostly shows. More
+training pulled the model toward "sailboat" as Roboflow depicts it, at
+some cost to generalizing beyond that shape — the same failure mode as
+the original SeaShips-only run, just much milder since the training
+mix is far more varied this time. **The 10-epoch checkpoint is the one
+to use**: it's the only one with zero missed images on both test sets,
+and more training didn't uniformly improve on that.
+
+Not yet tried: a larger Roboflow sailboat sample (1,200 of the
+available 7,113 were used here), or an explicit general-feature-
+preserving training method (frozen backbone layers, EWC-style
+regularization, lower learning rate) that might let more epochs help
+without this trade-off.
 
 ## Datasets
 
