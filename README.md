@@ -209,36 +209,53 @@ ship, fishing boat, etc.) into one: this project asks "is there a boat",
 not ship taxonomy.
 
 Measured the same way as the horizon baseline — a number before any
-training, not a result to lean on — on a fixed-seed 150-image sample (120
-train / 30 val, 34 ground-truth boxes), using ultralytics' own `val()`
-rather than a hand-rolled metric (see below for why):
+training, not a result to lean on — on a fixed-seed 1500-image sample
+(1200 train / 300 val, 396 ground-truth boxes), using ultralytics' own
+`val()` rather than a hand-rolled metric (see below for why):
 
 ```
                               mAP50    mAP50-95   Precision   Recall
-Zero-shot (stock yolov8n.pt)  0.975     0.589      1.000      0.971
-Fine-tuned (30 epochs)        0.975     0.577      1.000      0.971
+Zero-shot (stock yolov8n.pt)  0.945     0.616      1.000      0.944
+Fine-tuned (40 epochs)        0.995     0.774      1.000      0.995
 ```
 
 ```bash
 pip install -r requirements-detection.txt --index-url https://download.pytorch.org/whl/cpu
-python scripts/fetch_seaships_sample.py --n 150
-python scripts/evaluate_boat_detection.py                                        # zero-shot
-python scripts/train_boat_detection.py --epochs 30                               # fine-tune
+python scripts/fetch_seaships_sample.py --n 1500
+python scripts/evaluate_boat_detection.py                                            # zero-shot
+python scripts/train_boat_detection.py --epochs 40 --checkpoint data/checkpoints/yolov8n_boats.pt
 python scripts/evaluate_boat_detection.py --checkpoint data/checkpoints/yolov8n_boats.pt
 ```
 
-**The honest reading of this:** fine-tuning did not clearly beat the
-zero-shot baseline here — mAP50-95 is marginally *worse* after
-fine-tuning (0.577 vs 0.589). This isn't the result I expected, and I'm
-reporting it rather than cherry-picking a more flattering run. The likely
-explanation: SeaShips ships (cargo carriers, container ships, tankers)
-are large, high-contrast rectangular hulls on open water — visually
-generic enough that COCO's own "boat" class, trained on a huge diverse
-set of real-world boat photos, already generalizes to them zero-shot. 120
-training images for 30 epochs wasn't enough signal to clearly beat an
-already-strong baseline on this metric. A harder, more sailing-specific
-dataset (SMD, or actual race footage, see Known limitations below) is a
-more likely place for fine-tuning to actually pay off.
+**mAP alone understates what fine-tuning actually fixed.** An earlier run
+on a much smaller sample (120 train / 30 val — still in the git history)
+showed fine-tuned and zero-shot landing on nearly identical mAP50
+(0.975 both), which on its own reads as "fine-tuning didn't help." It
+missed the real story, visible only by checking predictions at a fixed,
+practical confidence threshold (0.25 — what you'd actually use, not the
+threshold-sweep mAP integrates over) instead of trusting the aggregate
+metric alone:
+
+```
+                          images with zero       images with at least
+                          detections @conf=0.25  one missed box (IoU<0.5)
+Zero-shot                 34%                     61%
+Fine-tuned (120 train)    40%                     ~53%
+Fine-tuned (1200 train)    0%                      3%
+```
+
+The zero-shot model *can* localize most SeaShips boats (that's what the
+high mAP measures, since mAP sweeps every confidence level including
+near-zero ones) but is rarely *confident* about them — COCO's "boat"
+class never saw this specific port/hull style, so at a threshold you'd
+actually deploy with, it misses most of the time. Fine-tuning on only
+120 images didn't fix that calibration problem (not enough signal to
+learn confident predictions, same root cause as the still-close mAP).
+Fine-tuning on 1200 images did: zero images with no detection at all,
+and the model's confidence is now trustworthy at a normal operating
+threshold, not just somewhere on the full sweep. This is the more
+honest headline number for "does fine-tuning work here" than mAP alone
+— confirmed by rerunning the exact same check, nothing cherry-picked.
 
 **On the metric itself:** an earlier version of this evaluation used a
 hand-rolled IoU-matching AP (same approach as `evaluate_horizon.py`). It
@@ -258,18 +275,19 @@ the un-fine-tuned 80-class model can be scored fairly. This instability
 is itself the more honest takeaway than either individual number: mAP on
 a 30-image eval set is noisy, full stop.
 
-**Visual comparison** (red: predicted, green: ground truth, same
-fine-tuned checkpoint as above):
+**Visual comparison** (red: predicted, green: ground truth, the
+1200-image fine-tuned checkpoint):
 
-| Best (IoU 0.90) | Median (IoU 0.36) | Worst (IoU 0.00) |
+| Best (IoU 0.99) | Median (IoU 0.88) | Worst (IoU 0.43) |
 |---|---|---|
 | ![best](docs/examples/boat_detection_best.jpg) | ![median](docs/examples/boat_detection_median.jpg) | ![worst](docs/examples/boat_detection_worst.jpg) |
 
-The worst case is a small boat moored at the shoreline, blending into the
-dock/building clutter behind it — a real failure mode, not a labeling
-artifact (visible by comparing against the ground-truth panel). The
-median case shows two moored ships close together scored as one merged
-detection instead of two — a localization error, not a missed detection.
+The worst case here is a real but minor localization error, not a miss:
+two ships close together, a container ship and a smaller vessel further
+back, where the model only boxes the nearer one — visible by comparing
+against the two separate ground-truth boxes on the right. Median is now
+0.88 IoU, not 0.36 — a direct, visible consequence of the confidence-
+calibration fix above, not just a better aggregate number.
 
 **Known limitations, not hidden:** SeaShips is shore-camera footage of
 commercial shipping at a fixed Chinese port — a real domain gap from a
@@ -279,9 +297,12 @@ vibrating mast). SMD and actual race-broadcast footage (America's Cup /
 SailGP) are not yet integrated: SMD ships as raw multi-GB video with a
 custom per-frame ground-truth format (horizon + tracking + detection
 combined), which needs its own frame-extraction and parsing pipeline —
-a separate chunk of work from this stage. The 150-image sample (vs. the
-full 7000) and 30-epoch run are both quick-start defaults, not a
-ceiling — `--n` and `--epochs` scale both up.
+a separate chunk of work from this stage. The numbers above use `--n
+1500 --epochs 40`, not the scripts' lighter quick-start defaults (`--n
+150`, `--epochs 30`) — this page is itself the evidence that the
+lighter defaults under-train the model's confidence calibration, so
+anyone reproducing a real result here needs the larger flags; both
+scale up further still.
 
 ## Datasets
 
@@ -313,10 +334,12 @@ ceiling — `--n` and `--epochs` scale both up.
   redistribution license of its own; this project fetches a [public
   Hugging Face mirror](https://huggingface.co/datasets/datnguyentien204/Seaship7000)
   for the same academic/portfolio research use the dataset is normally
-  cited for. A reproducible sample is fetched with:
+  cited for. A reproducible sample is fetched with (`--n 150` is a
+  quick-start default; the boat detection results above use `--n 1500`,
+  since the smaller sample under-trains the model's confidence):
 
   ```bash
-  python scripts/fetch_seaships_sample.py --n 150
+  python scripts/fetch_seaships_sample.py --n 1500
   ```
 
 None of these datasets have sailing-specific gust/wind-zone annotations —
