@@ -44,8 +44,11 @@ def detect_horizon(frame_bgr: np.ndarray) -> np.ndarray:
     # few degrees at most, from boat roll) and pick the longest one as
     # the anchor line; average over all segments within a tight angle
     # band of it for robustness against a single noisy detection.
+    #
+    # cv2.HoughLinesP's return shape changed between OpenCV versions:
+    # (N, 1, 4) on 4.x, (N, 4) on 5.x. reshape(-1, 4) handles either.
     candidates = []
-    for line in lines[:, 0, :]:
+    for line in lines.reshape(-1, 4):
         x1, y1, x2, y2 = line
         dx, dy = x2 - x1, y2 - y1
         length = float(np.hypot(dx, dy))

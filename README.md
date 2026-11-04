@@ -26,10 +26,11 @@ point.
 - [x] **Sea/sky horizon detection (classical baseline)** — see below
 - [x] **Sea/sky segmentation (learned model)** — see below; replaces the
   single-line baseline with a CNN that handles coastline/obstacles directly
-- [x] **Boat detection (YOLOv8n)** — see below. Zero-shot, fine-tuned on
-  SeaShips alone, and fine-tuned on SeaShips+Open Images all measured
-  and compared on real sailing/AC75 photos; the honest result is that
-  **zero-shot still wins** today, not either fine-tuned checkpoint.
+- [x] **Boat detection (YOLOv8n)** — see below. Four checkpoints
+  measured and compared on real sailing/AC75 photos (zero-shot,
+  SeaShips-only, +Open Images, +Open Images+sailing-specific Roboflow
+  data); the last one is the first to match zero-shot's recall on
+  both test sets, after two earlier attempts that didn't.
   [SMD](https://sites.google.com/site/dilipprasad/home/singapore-maritime-dataset)
   and actual race-broadcast footage are still not integrated — current
   AC75-specific free imagery is too scarce for training, only for
@@ -366,25 +367,62 @@ python scripts/train_boat_detection.py --epochs 10 --data data/datasets/combined
 |---|---|---|
 | Zero-shot | 14 boxes, 0 missed | 30 boxes, 0 missed |
 | Fine-tuned on SeaShips only | 1 box, 3 missed | 7 boxes, 5 missed |
-| **Fine-tuned on SeaShips + Open Images** | 6 boxes, 1 missed | 22 boxes, 1 missed |
+| Fine-tuned on SeaShips + Open Images | 6 boxes, 1 missed | 22 boxes, 1 missed |
+
+Better, but mAP alone on that run (0.510) was still catching no
+sailboats specifically — Open Images' "Boat" class is varied (jet
+skis, dinghies, yachts) but has no dedicated sailboat label, so the
+model was never shown "this is what a sail looks like" as its own
+concept. A search for a genuinely sailing-specific free dataset turned
+up [Roboflow Universe's "Sailboat
+detector"](https://universe.roboflow.com/learning-299jh/sailboat-detector)
+(CC BY 4.0, 8,888 images, 11 vessel-type classes including a dedicated
+`sailboat` label) — adding 1,200 of those images to the mix (collapsed
+to this project's single `boat` class) and fine-tuning the same 10
+epochs:
+
+```bash
+export ROBOFLOW_API_KEY="..."   # free account at roboflow.com, required by the
+                                 # platform to download regardless of the CC license
+python scripts/fetch_roboflow_sailboat_sample.py
+python scripts/make_combined_boat_dataset.py
+python scripts/train_boat_detection.py --epochs 10 --data data/datasets/combined/data.yaml --checkpoint data/checkpoints/yolov8n_boats_combined3.pt
+```
+
+| | 4 classic sailboat photos | 11 AC75/foiling photos |
+|---|---|---|
+| Zero-shot | 14 boxes, 0 missed | 30 boxes, **0 missed** |
+| Fine-tuned on SeaShips only | 1 box, 3 missed | 7 boxes, 5 missed |
+| Fine-tuned on SeaShips + Open Images | 6 boxes, 1 missed | 22 boxes, 1 missed |
+| **+ Roboflow sailboat-specific data** | 7 boxes, **0 missed** | **32 boxes, 0 missed** |
 
 ![domain gap: classic sailboats](docs/examples/boat_detection_domain_gap_sailing.jpg)
 ![domain gap: AC75 foiling boats](docs/examples/boat_detection_domain_gap_ac75.jpg)
 
-**The honest verdict: mixing in Open Images substantially recovered the
-damage, but did not beat zero-shot — on either test set, including the
-AC75 photos it was never specifically trained on.** Not the result I
-was hoping for going in, and I'm reporting it as measured rather than
-stopping at the first checkpoint that looked better. For actually
-detecting boats in sailing footage today, the stock COCO-pretrained
-model outperforms every fine-tuned variant built in this project.
-Fine-tuning only becomes worth it with either a much larger, visually
-diverse sailing-specific dataset (which doesn't exist freely at
-scale — see Datasets below) or a training approach that explicitly
-protects general features instead of (or alongside) adapting to a
-narrow set of new images, e.g. freezing early backbone layers,
-EWC-style regularization, or just a much lower learning rate/fewer
-epochs for narrow data. None of that is implemented here yet.
+**The honest verdict, updated: adding genuinely sailing-specific
+training data closed the gap that generic data alone couldn't.** This
+is the first fine-tuned checkpoint to miss zero images on both test
+sets, matching zero-shot's recall, and on the AC75 set it finds more
+boxes than zero-shot (32 vs 30) despite AC75 foiling hulls never
+appearing in training at all. It still trails zero-shot on raw box
+count for classic sailboats (7 vs 14 — the sailing_test_1 example
+above shows it catching 2 of 4 boats zero-shot gets, up from 0 for
+both earlier fine-tunes but not yet all 4), and mAP50-95 on its own
+val set (0.343) is the lowest of all three fine-tuned runs — more
+domain diversity in the training mix costs aggregate-metric headroom
+even as it fixes the specific real-world failure this section exists
+to catch. The lesson carried through this whole investigation: **mAP
+on the fine-tuning dataset told the opposite story from testing on
+real target-domain photos at every single step** — the better-looking
+number was the wrong signal all three times.
+
+Both fine-tuning attempts used the lighter-touch choices the first
+failure motivated (10 epochs, not 40; a visually varied mix, not a
+single narrow source) — not yet tried: more epochs on this specific
+3-source mix, a larger Roboflow sailboat sample (1,200 of the
+available 7,113 were used), or an explicit general-feature-preserving
+training method (frozen backbone layers, EWC-style regularization,
+lower learning rate). None of that is implemented here yet.
 
 ## Datasets
 
@@ -435,6 +473,19 @@ epochs for narrow data. None of that is implemented here yet.
 
   ```bash
   python scripts/fetch_openimages_boats_sample.py --n 500
+  ```
+
+- **[Roboflow Universe: Sailboat detector](https://universe.roboflow.com/learning-299jh/sailboat-detector)**
+  (CC BY 4.0, 8,888 images, 11 vessel-type classes including a
+  dedicated `sailboat` label — genuinely sailing-specific, unlike Open
+  Images' generic `Boat`) — the dataset that closed the domain gap Open
+  Images alone couldn't (see Boat detection above). Needs a free
+  Roboflow account and API key to download (the platform requires one
+  regardless of the dataset's own license):
+
+  ```bash
+  export ROBOFLOW_API_KEY="..."   # from a free account at roboflow.com
+  python scripts/fetch_roboflow_sailboat_sample.py   # 1,200/300 of the available 7,113/1,337
   ```
 
 - **AC75/foiling test photos** — not a training dataset, a qualitative

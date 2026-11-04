@@ -1,0 +1,14 @@
+# Extra dependency for scripts/fetch_roboflow_sailboat_sample.py only.
+#
+# WARNING: roboflow depends on opencv-python-headless, which conflicts
+# with the base opencv-python in requirements.txt (both provide the
+# `cv2` module; whichever installs last silently wins). This caused a
+# real regression once already: OpenCV 5.x's opencv-python-headless
+# changed cv2.HoughLinesP's return shape from (N,1,4) to (N,4) and
+# broke segmentation/src/horizon.py until it was made shape-agnostic.
+#
+# Install this in a separate venv from the rest of the project if you
+# want to avoid that risk entirely; otherwise re-run
+# `pip install opencv-python==4.12.0.88` afterwards to force the
+# version back, and re-run the full test suite before trusting it.
+roboflow==1.7.3
