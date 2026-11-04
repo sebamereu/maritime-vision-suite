@@ -26,11 +26,14 @@ point.
 - [x] **Sea/sky horizon detection (classical baseline)** — see below
 - [x] **Sea/sky segmentation (learned model)** — see below; replaces the
   single-line baseline with a CNN that handles coastline/obstacles directly
-- [x] **Boat detection (YOLOv8n, zero-shot baseline + fine-tuned on
-  SeaShips)** — see below. [Singapore Maritime Dataset
-  (SMD)](https://sites.google.com/site/dilipprasad/home/singapore-maritime-dataset)
-  and footage from public race broadcasts (America's Cup / SailGP) are not
-  yet integrated — see Known limitations below
+- [x] **Boat detection (YOLOv8n)** — see below. Zero-shot, fine-tuned on
+  SeaShips alone, and fine-tuned on SeaShips+Open Images all measured
+  and compared on real sailing/AC75 photos; the honest result is that
+  **zero-shot still wins** today, not either fine-tuned checkpoint.
+  [SMD](https://sites.google.com/site/dilipprasad/home/singapore-maritime-dataset)
+  and actual race-broadcast footage are still not integrated — current
+  AC75-specific free imagery is too scarce for training, only for
+  testing (see Datasets below)
 - [ ] **Wind-zone detection** — no dataset or prior work exists for this, so
   it's framed as an **unsupervised** problem, not classification:
   - Segment relatively rougher/darker water patches (gusts/"cat's paws")
@@ -293,16 +296,95 @@ calibration fix above, not just a better aggregate number.
 commercial shipping at a fixed Chinese port — a real domain gap from a
 mast-mounted camera on a sailing boat in open water (different hull
 shapes, no recreational sailboats at all, fixed camera vs. a moving,
-vibrating mast). SMD and actual race-broadcast footage (America's Cup /
-SailGP) are not yet integrated: SMD ships as raw multi-GB video with a
-custom per-frame ground-truth format (horizon + tracking + detection
+vibrating mast). SMD ships as raw multi-GB video with a custom
+per-frame ground-truth format (horizon + tracking + detection
 combined), which needs its own frame-extraction and parsing pipeline —
-a separate chunk of work from this stage. The numbers above use `--n
-1500 --epochs 40`, not the scripts' lighter quick-start defaults (`--n
-150`, `--epochs 30`) — this page is itself the evidence that the
-lighter defaults under-train the model's confidence calibration, so
-anyone reproducing a real result here needs the larger flags; both
-scale up further still.
+a separate chunk of work from this stage, still not integrated. The
+numbers above use `--n 1500 --epochs 40`, not the scripts' lighter
+quick-start defaults (`--n 150`, `--epochs 30`) — this page is itself
+the evidence that the lighter defaults under-train the model's
+confidence calibration, so anyone reproducing a real result here needs
+the larger flags.
+
+### Domain generalization test: does it actually work on real sailing photos?
+
+The limitation above was a prediction. This section is the test of it —
+and the fine-tuned checkpoint fails it badly.
+
+`scripts/test_on_real_sailing_photos.py` runs a checkpoint on photos
+that aren't SeaShips: no ground truth (these aren't an annotated
+dataset), just boxes and confidences to look at directly. Two small
+free-license sets, fetched reproducibly:
+
+```bash
+python scripts/fetch_sailing_test_photos.py   # 4 classic-sailboat photos, Unsplash License
+python scripts/fetch_ac75_test_photos.py      # 11 AC75/foiling photos, Wikimedia Commons (CC, attributed in CREDITS.md)
+python scripts/test_on_real_sailing_photos.py --images-dir data/datasets/sailing_test_photos --checkpoint data/checkpoints/yolov8n_boats.pt
+python scripts/test_on_real_sailing_photos.py --images-dir data/datasets/ac75_test_photos --checkpoint data/checkpoints/yolov8n_boats.pt
+```
+
+(AC75/foiling test photos deliberately *aren't* from YouTube or
+broadcast footage — that's copyrighted content this repo won't
+redistribute. Wikimedia Commons' AC75-tagged categories hold under 15
+CC-licensed photos total across every team combined; see Datasets
+below for why that's also the ceiling on fine-tuning with this kind of
+boat specifically, not just a sourcing inconvenience for testing.)
+
+**Boxes found per image, at the same conf=0.25 threshold used above:**
+
+| | 4 classic sailboat photos | 11 AC75/foiling photos |
+|---|---|---|
+| Zero-shot | 14 boxes, **0 images missed** | 30 boxes, **0 images missed** |
+| Fine-tuned on SeaShips only | 1 box, 3 images missed | 7 boxes, 5 images missed |
+
+The SeaShips fine-tune — the one with mAP50-95 0.774, better than
+zero-shot on every metric measured above — is nearly blind to actual
+sailboats. Not "a bit worse," blind: 3 of 4 classic-sailboat photos get
+zero detections, and foiling AC75s (a hull shape that looks nothing
+like a cargo ship: no hull visible in the water, thin foil arms, a
+rigid wingsail on modern boats) fare even worse. This is catastrophic
+forgetting, not mild overfitting as the smaller-sample result earlier
+suggested — 40 epochs on a single narrow visual domain (commercial
+ships, one port) overwrote enough of what COCO's pretrained "boat"
+class already knew to break it on anything else.
+
+**The fix attempted: mix in a more varied generic-boat dataset instead
+of fine-tuning on SeaShips alone.**
+[Open Images V7](https://storage.googleapis.com/openimages/web/index.html)'s
+"Boat" class (jet skis, dinghies, yachts, canoes — far more varied than
+commercial shipping) is combined with SeaShips and fine-tuned for only
+10 epochs (not 40 — a lighter touch is itself part of not overwriting
+general knowledge again):
+
+```bash
+python scripts/fetch_openimages_boats_sample.py --n 500
+python scripts/make_combined_boat_dataset.py
+python scripts/train_boat_detection.py --epochs 10 --data data/datasets/combined/data.yaml --checkpoint data/checkpoints/yolov8n_boats_combined.pt
+```
+
+| | 4 classic sailboat photos | 11 AC75/foiling photos |
+|---|---|---|
+| Zero-shot | 14 boxes, 0 missed | 30 boxes, 0 missed |
+| Fine-tuned on SeaShips only | 1 box, 3 missed | 7 boxes, 5 missed |
+| **Fine-tuned on SeaShips + Open Images** | 6 boxes, 1 missed | 22 boxes, 1 missed |
+
+![domain gap: classic sailboats](docs/examples/boat_detection_domain_gap_sailing.jpg)
+![domain gap: AC75 foiling boats](docs/examples/boat_detection_domain_gap_ac75.jpg)
+
+**The honest verdict: mixing in Open Images substantially recovered the
+damage, but did not beat zero-shot — on either test set, including the
+AC75 photos it was never specifically trained on.** Not the result I
+was hoping for going in, and I'm reporting it as measured rather than
+stopping at the first checkpoint that looked better. For actually
+detecting boats in sailing footage today, the stock COCO-pretrained
+model outperforms every fine-tuned variant built in this project.
+Fine-tuning only becomes worth it with either a much larger, visually
+diverse sailing-specific dataset (which doesn't exist freely at
+scale — see Datasets below) or a training approach that explicitly
+protects general features instead of (or alongside) adapting to a
+narrow set of new images, e.g. freezing early backbone layers,
+EWC-style regularization, or just a much lower learning rate/fewer
+epochs for narrow data. None of that is implemented here yet.
 
 ## Datasets
 
@@ -340,6 +422,33 @@ scale up further still.
 
   ```bash
   python scripts/fetch_seaships_sample.py --n 1500
+  ```
+
+- **[Open Images V7](https://storage.googleapis.com/openimages/web/index.html)**
+  "Boat" class (Google, CC BY 4.0 annotations; underlying photos carry
+  per-image Creative Commons licenses from their Flickr sources, which is
+  what Open Images is built and licensed for) — far more visually varied
+  than SeaShips (jet skis, dinghies, yachts, canoes, not just commercial
+  shipping). Only the validation split's annotations are used (25MB vs.
+  2.2GB for the full train split) — 567 images have at least one
+  individually-boxed boat:
+
+  ```bash
+  python scripts/fetch_openimages_boats_sample.py --n 500
+  ```
+
+- **AC75/foiling test photos** — not a training dataset, a qualitative
+  test set (see Boat detection above). Genuinely free-licensed AC75
+  imagery is scarce: Wikimedia Commons' dedicated `AC75` and `Ineos
+  Britannia` categories hold under 15 files combined, and
+  `Alinghi Red Bull Racing` / `American Magic` have no Commons category
+  at all. 11 photos across several teams (Ineos Britannia, Luna Rossa,
+  Team New Zealand, with Alinghi visible in one) is close to what's
+  realistically available today without using copyrighted broadcast
+  footage:
+
+  ```bash
+  python scripts/fetch_ac75_test_photos.py
   ```
 
 None of these datasets have sailing-specific gust/wind-zone annotations —
