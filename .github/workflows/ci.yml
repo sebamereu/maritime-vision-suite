@@ -32,7 +32,7 @@ jobs:
           pip install pytest ruff
 
       - name: Lint
-        run: ruff check detection/python segmentation scripts boat_detection
+        run: ruff check detection/python segmentation scripts boat_detection wind_detection
 
       # Fast unit tests only (model forward-pass shape, dataset loading,
       # metrics math) — real training (scripts/train_segmentation.py,
@@ -57,3 +57,4 @@ jobs:
           pytest detection/python -v
           pytest segmentation/tests -v
           pytest boat_detection/tests -v
+          pytest wind_detection/tests -v

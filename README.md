@@ -35,22 +35,12 @@ point.
   and actual race-broadcast footage are still not integrated — current
   AC75-specific free imagery is too scarce for training, only for
   testing (see Datasets below)
-- [ ] **Wind-zone detection** — no dataset or prior work exists for this, so
-  it's framed as an **unsupervised** problem, not classification:
-  - Segment relatively rougher/darker water patches (gusts/"cat's paws")
-    from relatively smoother ones in the *same frame* — local texture
-    contrast (Gabor response, high-frequency FFT energy) rather than an
-    absolute brightness threshold, which breaks under cloud shadow/glare
-  - Add **optical flow** as a second, independent signal: ripple motion
-    differs between gust and calm patches even when lighting is deceptive
-  - **Validation methodology** (this is the part that actually needs to
-    hold up): correlate a flagged patch against the boat's own anemometer
-    reading once the boat sails into it, logged over many crossings. No
-    external ground truth exists, so this self-supervised comparison is
-    the only honest way to report an accuracy number instead of "looks
-    right"
-  - Known failure modes to document, not hide: sun glare, cloud-shadow
-    confounds, mast sway/vibration destabilizing the frame
+- [x] **Wind-zone detection (unsupervised)** — see below. Texture +
+  optical-flow gust/calm segmentation implemented and tested on real
+  open-water footage; real anemometer-correlated validation (the
+  methodology originally planned here) is **not possible with this
+  project's data** — there's no boat, no sensors, no synced footage —
+  and that's stated plainly below rather than faked
 - [ ] Quantitative wind speed/direction estimation from wave state —
   exploratory, reported with explicit error bars against real wind data,
   not sold as anemometer-equivalent
@@ -443,6 +433,103 @@ preserving training method (frozen backbone layers, EWC-style
 regularization, lower learning rate) that might let more epochs help
 without this trade-off.
 
+## Wind-zone detection
+
+No dataset, no prior work, and — unlike every stage above — **no way
+to measure accuracy against reality** with what this project has
+access to: a gust/lull ground-truth label only means something paired
+with an anemometer reading at that exact place and moment, and this
+project has no boat, no sensors, and no footage recorded alongside
+one. The original plan for this stage (roadmap history) was to
+correlate detections against a boat's own instrument over many
+crossings; that's not an experiment this repo can run. Framed
+honestly, this stage is **unsupervised method-building and a sanity
+check that the signal isn't noise** — not a validated detector.
+
+`wind_detection/src/texture.py` scores how much rougher each patch of
+a frame is than that frame's own average: high-pass the grayscale
+image (subtract a heavy Gaussian blur, which removes large-scale glare
+and shadow gradients but keeps small-scale ripple/foam detail), take
+local energy of what's left, z-score it against the frame's own
+mean/std. Z-scoring per frame — not a fixed brightness cutoff — is
+what makes this survive moving from a sunny clip to an overcast one
+without retuning.
+
+`wind_detection/src/optical_flow.py` adds a second, independent cue:
+Farneback dense optical flow between consecutive frames, then the
+*local variance* of flow magnitude (not raw speed, which a panning
+camera would fool) — rougher water has spatially inconsistent ripple
+motion, calm water moves more uniformly. `detector.py` combines the
+two (default 60% texture / 40% flow) into a single z-scored
+gust-likelihood map, then thresholds it into gust / calm / neutral
+zones — again relative to that frame's own distribution, not a fixed
+number.
+
+**Tested on**: two free-license aerial water videos (Pixabay License,
+no account/attribution required), fetched reproducibly:
+
+```bash
+python scripts/fetch_wind_test_videos.py
+python scripts/detect_wind_zones.py --video data/datasets/wind_test_videos/sea_texture.mp4
+python scripts/visualize_wind_zones.py --video data/datasets/wind_test_videos/sea_texture.mp4
+```
+
+**The sanity check**: if the gust-likelihood map were just noise,
+consecutive frames (a fraction of a second apart, after the stride the
+script uses) would correlate close to 0. If it were simply not
+responding to anything, every frame pair would correlate near 1
+(static map). What's measured instead, over 60 frame pairs on open
+water:
+
+```
+sea_texture.mp4:        frame-to-frame correlation 0.861 (std 0.030, range 0.729-0.896)
+beach_waves_aerial.mp4: frame-to-frame correlation 0.785 (std 0.030, range 0.724-0.862)
+```
+
+Consistently well above 0 and well below 1 on both clips — the map
+tracks something that persists across frames but still changes, which
+is the right shape for a real physical signal and the wrong shape for
+either noise or a frozen map. **This is not an accuracy number and
+isn't presented as one** — it's evidence the method is doing something
+coherent, not evidence it's finding real gusts.
+
+![gust/calm zones on open water](docs/examples/wind_zone_open_water.jpg)
+
+Open water, no coastline in frame: the method separates a visibly
+rougher patch (red) from calmer water (blue) in a way that matches
+what's visible by eye in the source footage.
+
+**A real limitation, found by testing on the second clip and not
+hidden:**
+
+![known limitation: coastline and surf foam falsely flagged](docs/examples/wind_zone_known_limitation.jpg)
+
+Here the detector flags the surf foam breaking on the beach and even
+the *coastline itself* as "gust" zones. Neither is wind — breaking
+waves on shallow water and high-contrast terrain both produce the same
+kind of high-frequency texture and locally inconsistent motion the
+method looks for, so it can't yet tell "rough because of wind over
+open water" from "rough for an unrelated physical reason." This isn't
+a tuning problem with better thresholds; it's a missing precondition.
+**The fix is already built elsewhere in this project**: run this stage
+only inside the water mask the segmentation model (`segmentation/`)
+already produces, instead of over the whole frame — not yet wired
+together, left as the next integration step rather than papered over.
+
+**Known failure modes, documented rather than avoided**: sun glare
+(specular reflection reads as extreme local texture, indistinguishable
+from a gust without more context), surf/coastline as shown above, and
+— untested, since there's no footage of it — mast sway or camera
+vibration, which would inject motion into the optical-flow signal that
+has nothing to do with the water at all.
+
+Run it yourself:
+
+```bash
+python scripts/detect_wind_zones.py --video data/datasets/wind_test_videos/beach_waves_aerial.mp4
+python scripts/visualize_wind_zones.py --video data/datasets/wind_test_videos/beach_waves_aerial.mp4 --n-samples 5
+```
+
 ## Datasets
 
 - **[MaSTr1325](https://box.vicos.si/borja/viamaro/index.html)** (CC BY 4.0,
@@ -521,9 +608,26 @@ without this trade-off.
   python scripts/fetch_ac75_test_photos.py
   ```
 
+- **Two aerial water videos** (Pixabay License, no account or
+  attribution required) — not training data, test footage for
+  `wind_detection/` (see above):
+
+  ```bash
+  python scripts/fetch_wind_test_videos.py
+  ```
+
 None of these datasets have sailing-specific gust/wind-zone annotations —
-no such dataset exists (see roadmap above); that stage is unsupervised by
-design.
+no such dataset exists; `wind_detection/` is unsupervised by design, not
+because of a sourcing gap.
+
+**A note on a file that used to be here**: an early commit
+(`detection/python`'s original FPS-counter prototype) shipped with
+`data/videos/sample.mp4`, footage of an AC75 with America's Cup/team
+branding visible, sourced without checking its license. It has been
+removed from this repo's entire git history (not just the working
+tree) once that was noticed. If you're looking for a video to exercise
+`detection/python/src/main.py`, supply your own — the datasets above
+cover every other stage's testing needs.
 
 ## Requirements
 
@@ -552,7 +656,7 @@ pip install pytest ruff
 pip install -r requirements-segmentation.txt --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
 pip install -r requirements-detection.txt --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
 
-ruff check detection/python segmentation scripts boat_detection
+ruff check detection/python segmentation scripts boat_detection wind_detection
 
 # Run these separately, not combined into one `pytest a b c` call:
 # segmentation/src/ and boat_detection/src/ both have same-named modules
@@ -562,6 +666,7 @@ ruff check detection/python segmentation scripts boat_detection
 pytest detection/python -v
 pytest segmentation/tests -v
 pytest boat_detection/tests -v
+pytest wind_detection/tests -v
 ```
 
 Runs on every push/PR via GitHub Actions (`.github/workflows/ci.yml`),
