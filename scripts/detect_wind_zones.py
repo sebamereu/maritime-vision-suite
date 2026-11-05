@@ -38,12 +38,23 @@ def main():
                          help="if given, mask to water-only using this segmentation/ "
                               "checkpoint (e.g. data/checkpoints/tiny_unet.pt) before "
                               "scoring -- fixes sky/coastline being scored as if water")
+    parser.add_argument("--shore-buffer-px", type=int, default=0,
+                         help="requires --segmentation-checkpoint. Also exclude water "
+                              "within this many pixels of the nearest obstacle/shoreline "
+                              "-- fixes surf foam near the beach being scored as a gust")
     args = parser.parse_args()
 
     masker = None
     if args.segmentation_checkpoint:
         from water_mask import WaterMasker
         masker = WaterMasker(args.segmentation_checkpoint)
+    if args.shore_buffer_px and not masker:
+        raise SystemExit("--shore-buffer-px requires --segmentation-checkpoint")
+
+    open_water_mask = None
+    if args.shore_buffer_px:
+        from shoreline import open_water_mask as _open_water_mask
+        open_water_mask = _open_water_mask
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
@@ -66,7 +77,13 @@ def main():
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         if prev_gray is not None:
-            water_mask = masker.predict(frame) if masker else None
+            water_mask = None
+            if masker:
+                if open_water_mask:
+                    class_map = masker.predict_classes(frame)
+                    water_mask = open_water_mask(class_map, min_shore_distance_px=args.shore_buffer_px)
+                else:
+                    water_mask = masker.predict(frame)
             gm = detect_frame_pair(prev_gray, frame, gray, patch_size=args.patch_size,
                                     water_mask=water_mask)
 

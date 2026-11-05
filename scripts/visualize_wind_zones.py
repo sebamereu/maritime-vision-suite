@@ -45,12 +45,21 @@ def main():
     parser.add_argument("--segmentation-checkpoint", default=None,
                          help="if given, mask to water-only using this segmentation/ "
                               "checkpoint before scoring (see detect_wind_zones.py)")
+    parser.add_argument("--shore-buffer-px", type=int, default=0,
+                         help="requires --segmentation-checkpoint (see detect_wind_zones.py)")
     args = parser.parse_args()
 
     masker = None
     if args.segmentation_checkpoint:
         from water_mask import WaterMasker
         masker = WaterMasker(args.segmentation_checkpoint)
+    if args.shore_buffer_px and not masker:
+        raise SystemExit("--shore-buffer-px requires --segmentation-checkpoint")
+
+    open_water_mask = None
+    if args.shore_buffer_px:
+        from shoreline import open_water_mask as _open_water_mask
+        open_water_mask = _open_water_mask
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
@@ -75,7 +84,13 @@ def main():
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         if prev_gray is not None and frame_idx in sample_at:
-            water_mask = masker.predict(frame) if masker else None
+            water_mask = None
+            if masker:
+                if open_water_mask:
+                    class_map = masker.predict_classes(frame)
+                    water_mask = open_water_mask(class_map, min_shore_distance_px=args.shore_buffer_px)
+                else:
+                    water_mask = masker.predict(frame)
             gm = detect_frame_pair(prev_gray, frame, gray, water_mask=water_mask)
             mask = zone_mask(gm, gust_threshold=args.gust_threshold,
                               calm_threshold=args.calm_threshold)

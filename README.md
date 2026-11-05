@@ -36,13 +36,15 @@ point.
   AC75-specific free imagery is too scarce for training, only for
   testing (see Datasets below)
 - [x] **Wind-zone detection (unsupervised)** — see below. Texture +
-  optical-flow gust/calm segmentation, now masked to water-only using
-  the segmentation stage's own output (fixes sky/coastline false
-  positives; surf foam is a separate, still-open gap). Real
-  anemometer-correlated validation (the methodology originally planned
-  here) is **not possible with this project's data** — there's no
-  boat, no sensors, no synced footage — and that's stated plainly
-  below rather than faked
+  optical-flow gust/calm segmentation, masked to water-only using the
+  segmentation stage's own output (fixes sky/coastline false
+  positives). A second fix excludes a buffer near the shoreline to
+  address surf foam, but trades away statistical stability to do it —
+  not a clean win, reported as a trade-off. Real anemometer-correlated
+  validation (the methodology originally planned here) is **not
+  possible with this project's data** — there's no boat, no sensors,
+  no synced footage — and that's stated plainly below rather than
+  faked
 - [ ] Quantitative wind speed/direction estimation from wave state —
   exploratory, reported with explicit error bars against real wind data,
   not sold as anemometer-equivalent
@@ -553,25 +555,60 @@ breaking on the beach (bottom-left, both panels) is still flagged red.
 That's not a bug in the masking — the segmentation model correctly
 calls breaking surf "water" (it physically is), but wave breakup from
 shallow-water surf is a different phenomenon from wind roughening open
-water, and nothing in this stage distinguishes the two. Fixing that
-would need either excluding the immediate shoreline by geometry/depth,
-or a signal that can tell "water agitated by the seabed" from "water
-agitated by wind" — neither is attempted here.
+water, and nothing in this stage distinguishes the two.
+
+**Second fix attempt: exclude a buffer near the shoreline.** Surf break
+only happens close to shallow water near land; wind gusts can happen
+anywhere. `wind_detection/src/shoreline.py` reuses the segmentation
+model's own obstacle/shoreline pixels, runs a distance transform, and
+excludes water within `--shore-buffer-px` of the nearest shore pixel:
+
+```bash
+python scripts/visualize_wind_zones.py --video data/datasets/wind_test_videos/beach_waves_aerial.mp4 \
+    --segmentation-checkpoint data/checkpoints/tiny_unet.pt --shore-buffer-px 400 --n-samples 5
+```
+
+![three-way comparison: no mask, water mask, shore buffer](docs/examples/wind_zone_shore_buffer_comparison.jpg)
+
+At a 400px buffer (frame width 1920px — roughly the left fifth of the
+frame), the surf foam is visually gone from the scored region. But
+this comes at a real, measured cost, not a free fix:
+
+```
+                           gust frac  calm frac  frame-to-frame correlation
+no mask                    11.2%       0.0%      0.785 (std 0.030, range 0.724-0.862)
+water-only mask             10.7%      2.7%      0.705 (std 0.039, range 0.640-0.817)
+water + 400px shore buffer  13.1%      4.2%      0.486 (std 0.182, range 0.097-0.696)
+```
+
+The internal-consistency correlation — this stage's only sanity check,
+since real validation isn't possible — drops sharply and gets far less
+stable (std more than 4x higher, one frame pair down at 0.097, close
+to what pure noise would show). Excluding a large buffer near shore
+leaves less open water to compute statistics from, concentrated in
+small, often disconnected corners of the frame (visible in the
+rightmost panel above), so the z-score the whole method depends on is
+now estimated from a smaller, noisier sample. **This isn't presented
+as a clean second win**: it visibly fixes the surf-foam problem at the
+cost of making the remaining signal shakier, and no buffer size was
+found (nor extensively searched for) that gets both at once on this
+footage. A smaller buffer keeps more of the frame but leaves more surf
+foam uncaught, as the 150px attempt (not shown) did only partially.
 
 **Known failure modes, documented rather than avoided**: sun glare
 (specular reflection reads as extreme local texture, indistinguishable
 from a gust without more context — shown above, found in the
-"success" example itself, not a hypothetical, and not fixed by water
-masking since glare sits on real water), surf/coastline (coastline now
-fixed, surf foam not, as just shown), and — untested, since there's no
-footage of it — mast sway or camera vibration, which would inject
-motion into the optical-flow signal that has nothing to do with the
-water at all.
+"success" example itself, not a hypothetical, and not fixed by either
+masking attempt since glare sits on real, open water), and —
+untested, since there's no footage of it — mast sway or camera
+vibration, which would inject motion into the optical-flow signal that
+has nothing to do with the water at all.
 
-That's the honest state of this stage: masking closed one specific,
-demonstrated gap (sky/coastline treated as water), sun glare and surf
-foam remain open, and nothing here has been shown to work without a
-human checking the source frame.
+That's the honest state of this stage after two integration passes:
+sky/coastline is a closed, demonstrated gap; surf foam has a fix that
+trades away statistical stability rather than a clean one; sun glare
+is still open; and nothing here has been shown to work without a human
+checking the source frame.
 
 ## Datasets
 

@@ -23,7 +23,9 @@ if str(_SEGMENTATION_SRC) not in sys.path:
 from dataset import NUM_CLASSES
 from model import TinyUNet
 
-WATER_CLASS = 1  # see segmentation/src/dataset.py CLASS_NAMES
+OBSTACLE_CLASS = 0  # see segmentation/src/dataset.py CLASS_NAMES
+WATER_CLASS = 1
+SKY_CLASS = 2
 
 
 class WaterMasker:
@@ -36,8 +38,9 @@ class WaterMasker:
         self.model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
         self.model.eval()
 
-    def predict(self, frame_bgr: np.ndarray) -> np.ndarray:
-        """Return a boolean water mask at the frame's own resolution."""
+    def predict_classes(self, frame_bgr: np.ndarray) -> np.ndarray:
+        """Return the full per-pixel class map (0=obstacle, 1=water,
+        2=sky) at the frame's own resolution."""
         small = cv2.resize(frame_bgr, (self.width, self.height), interpolation=cv2.INTER_LINEAR)
         rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         tensor = torch.from_numpy(rgb.transpose(2, 0, 1)).unsqueeze(0)
@@ -46,6 +49,9 @@ class WaterMasker:
             logits = self.model(tensor)
             pred_small = logits.argmax(dim=1).squeeze(0).numpy().astype(np.uint8)
 
-        pred = cv2.resize(pred_small, (frame_bgr.shape[1], frame_bgr.shape[0]),
+        return cv2.resize(pred_small, (frame_bgr.shape[1], frame_bgr.shape[0]),
                            interpolation=cv2.INTER_NEAREST)
-        return pred == WATER_CLASS
+
+    def predict(self, frame_bgr: np.ndarray) -> np.ndarray:
+        """Return a boolean water mask at the frame's own resolution."""
+        return self.predict_classes(frame_bgr) == WATER_CLASS
