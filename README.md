@@ -38,11 +38,12 @@ point.
 - [x] **Wind-zone detection (unsupervised)** — see below. Texture +
   optical-flow gust/calm segmentation, masked to water-only using the
   segmentation stage's own output (fixes sky/coastline false
-  positives). A second fix excludes a buffer near the shoreline to
-  address surf foam, but trades away statistical stability to do it —
-  not a clean win, reported as a trade-off. Real anemometer-correlated
-  validation (the methodology originally planned here) is **not
-  possible with this project's data** — there's no boat, no sensors,
+  positives). Two further fixes attempted — a shoreline buffer for surf
+  foam, brightness/saturation/region-size for sun glare — both partial,
+  each trading something away rather than a clean win, reported as
+  such. Real anemometer-correlated validation (the methodology
+  originally planned here) is **not possible with this project's
+  data** — there's no boat, no sensors,
   no synced footage — and that's stated plainly below rather than
   faked
 - [ ] Quantitative wind speed/direction estimation from wave state —
@@ -595,20 +596,53 @@ found (nor extensively searched for) that gets both at once on this
 footage. A smaller buffer keeps more of the frame but leaves more surf
 foam uncaught, as the 150px attempt (not shown) did only partially.
 
-**Known failure modes, documented rather than avoided**: sun glare
-(specular reflection reads as extreme local texture, indistinguishable
-from a gust without more context — shown above, found in the
-"success" example itself, not a hypothetical, and not fixed by either
-masking attempt since glare sits on real, open water), and —
-untested, since there's no footage of it — mast sway or camera
-vibration, which would inject motion into the optical-flow signal that
-has nothing to do with the water at all.
+**Third fix attempt: exclude sun glare by brightness + saturation +
+region size.** The physical distinction from a genuine whitecap: glint
+is bright *and* desaturated (specular reflection washes out color) *and*
+forms one large, contiguous region following the sun-water-camera
+geometry — not scattered pixels. A real whitecap is also bright and
+desaturated, but typically small and scattered. `wind_detection/src/glare.py`
+z-scores brightness minus saturation per frame (same frame-relative
+principle as everything else here, not a fixed brightness cutoff),
+thresholds it, then keeps only connected regions above a minimum area
+— small bright/desaturated blobs (whitecaps) are left alone.
 
-That's the honest state of this stage after two integration passes:
-sky/coastline is a closed, demonstrated gap; surf foam has a fix that
-trades away statistical stability rather than a clean one; sun glare
-is still open; and nothing here has been shown to work without a human
-checking the source frame.
+```bash
+python scripts/visualize_wind_zones.py --video data/datasets/wind_test_videos/sea_texture.mp4 \
+    --exclude-glare --n-samples 5
+```
+
+![before and after excluding sun glare](docs/examples/wind_zone_glare_comparison.jpg)
+
+Same frame as the original "success" example. **Partial, not clean**:
+part of the glint band is now correctly excluded (visible gaps), but
+most of it still scores as gust — the default threshold only flags
+~8.5% of the frame as glare, clearly less than the full glint region.
+Lowering the threshold to catch more of it has a real cost, not a free
+win:
+
+![a more aggressive threshold also catches real whitecaps](docs/examples/wind_zone_glare_too_aggressive.jpg)
+
+At threshold 0.5 (vs. the default 1.0), two more regions get excluded
+— checked against the raw frame, these are genuine whitecaps (small,
+scattered foam, not a linear glint band), the exact signal this stage
+exists to keep. There's a real tension between catching more glare and
+accidentally suppressing real wind evidence, and no threshold was
+found that cleanly separates the two on this footage; the default
+stays conservative (misses some glare) rather than risk discarding
+genuine gust signal.
+
+**Known failure modes, documented rather than avoided**: mast sway or
+camera vibration — untested, since there's no footage of it — which
+would inject motion into the optical-flow signal that has nothing to
+do with the water at all.
+
+That's the honest state of this stage after three integration passes:
+sky/coastline is a closed, demonstrated gap; surf foam and sun glare
+both have fixes that trade something away (statistical stability for
+surf foam, completeness or risk to real wind signal for glare) rather
+than clean ones; and nothing here has been shown to work without a
+human checking the source frame.
 
 ## Datasets
 

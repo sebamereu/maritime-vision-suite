@@ -42,6 +42,11 @@ def main():
                          help="requires --segmentation-checkpoint. Also exclude water "
                               "within this many pixels of the nearest obstacle/shoreline "
                               "-- fixes surf foam near the beach being scored as a gust")
+    parser.add_argument("--exclude-glare", action="store_true",
+                         help="exclude large, contiguous bright/desaturated regions "
+                              "(sun glint) from scoring -- works independently of "
+                              "--segmentation-checkpoint, doesn't need it")
+    parser.add_argument("--glare-min-area-fraction", type=float, default=0.01)
     args = parser.parse_args()
 
     masker = None
@@ -55,6 +60,11 @@ def main():
     if args.shore_buffer_px:
         from shoreline import open_water_mask as _open_water_mask
         open_water_mask = _open_water_mask
+
+    specular_mask = None
+    if args.exclude_glare:
+        from glare import specular_mask as _specular_mask
+        specular_mask = _specular_mask
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
@@ -84,6 +94,12 @@ def main():
                     water_mask = open_water_mask(class_map, min_shore_distance_px=args.shore_buffer_px)
                 else:
                     water_mask = masker.predict(frame)
+
+            if specular_mask:
+                glare = specular_mask(frame, min_area_fraction=args.glare_min_area_fraction)
+                not_glare = ~glare
+                water_mask = not_glare if water_mask is None else (water_mask & not_glare)
+
             gm = detect_frame_pair(prev_gray, frame, gray, patch_size=args.patch_size,
                                     water_mask=water_mask)
 
