@@ -644,6 +644,24 @@ surf foam, completeness or risk to real wind signal for glare) rather
 than clean ones; and nothing here has been shown to work without a
 human checking the source frame.
 
+**Watching it over time, not just single frames**: every example above
+is a still, sampled from a video. `scripts/render_wind_zones_video.py`
+renders the full overlay onto every frame of a clip instead, so zones
+can be watched persisting (or not) and moving across frames directly,
+rather than inferred from the frame-to-frame correlation number alone:
+
+```bash
+python scripts/render_wind_zones_video.py --video data/datasets/wind_test_videos/sea_texture.mp4 \
+    --output data/outputs/sea_texture_annotated.mp4 --exclude-glare
+python scripts/render_wind_zones_video.py --video data/datasets/wind_test_videos/beach_waves_aerial.mp4 \
+    --output data/outputs/beach_waves_annotated.mp4 \
+    --segmentation-checkpoint data/checkpoints/tiny_unet.pt --shore-buffer-px 400 --exclude-glare
+```
+
+Not committed to the repo (video files, regenerate locally) — but
+watching them is the honest check that every fix above still holds at
+video speed, not just on the cherry-picked still frames shown here.
+
 ## Datasets
 
 - **[MaSTr1325](https://box.vicos.si/borja/viamaro/index.html)** (CC BY 4.0,
