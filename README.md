@@ -495,9 +495,23 @@ coherent, not evidence it's finding real gusts.
 
 ![gust/calm zones on open water](docs/examples/wind_zone_open_water.jpg)
 
-Open water, no coastline in frame: the method separates a visibly
-rougher patch (red) from calmer water (blue) in a way that matches
-what's visible by eye in the source footage.
+Open water, no coastline in frame — but this example is *not* a clean
+success, and presenting it as one in an earlier version of this README
+was wrong. Checked against the raw frame (no overlay): the large
+contiguous red region top-left lines up almost exactly with a band of
+**sun glint** (specular reflection off the ripples, visible as a
+linear sheen in the raw footage), not necessarily wind. Specular glare
+produces the same high local contrast the texture signal looks for, so
+there's no way to tell the two apart from this frame alone — this is
+the "sun glare" failure mode listed below, caught in the example meant
+to illustrate success. The small, isolated red patches scattered
+elsewhere in the frame are a better match for real whitecaps (visible
+as white foam in the raw frame), which genuinely do indicate wind — so
+the honest read is: the *small, scattered* detections here are
+plausible, the *one big confident-looking region* is probably an
+artifact, and a viewer can't tell which is which from the gust map
+alone without checking the source frame, which is itself a limitation
+worth stating plainly.
 
 **A real limitation, found by testing on the second clip and not
 hidden:**
@@ -518,10 +532,16 @@ together, left as the next integration step rather than papered over.
 
 **Known failure modes, documented rather than avoided**: sun glare
 (specular reflection reads as extreme local texture, indistinguishable
-from a gust without more context), surf/coastline as shown above, and
-— untested, since there's no footage of it — mast sway or camera
-vibration, which would inject motion into the optical-flow signal that
-has nothing to do with the water at all.
+from a gust without more context — shown above, found in the
+"success" example itself, not a hypothetical), surf/coastline as shown
+above, and — untested, since there's no footage of it — mast sway or
+camera vibration, which would inject motion into the optical-flow
+signal that has nothing to do with the water at all.
+
+At this point every example image in this section shows a failure mode
+rather than a clean win. That's the honest state of this stage: a
+working, internally-consistent method with no case yet demonstrated
+where it can be trusted without a human checking the source frame.
 
 Run it yourself:
 
