@@ -34,7 +34,16 @@ def main():
                               "nearly identical at 25fps; skipping gives more visible motion)")
     parser.add_argument("--max-pairs", type=int, default=60)
     parser.add_argument("--patch-size", type=int, default=32)
+    parser.add_argument("--segmentation-checkpoint", default=None,
+                         help="if given, mask to water-only using this segmentation/ "
+                              "checkpoint (e.g. data/checkpoints/tiny_unet.pt) before "
+                              "scoring -- fixes sky/coastline being scored as if water")
     args = parser.parse_args()
+
+    masker = None
+    if args.segmentation_checkpoint:
+        from water_mask import WaterMasker
+        masker = WaterMasker(args.segmentation_checkpoint)
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
@@ -57,10 +66,14 @@ def main():
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         if prev_gray is not None:
-            gm = detect_frame_pair(prev_gray, frame, gray, patch_size=args.patch_size)
+            water_mask = masker.predict(frame) if masker else None
+            gm = detect_frame_pair(prev_gray, frame, gray, patch_size=args.patch_size,
+                                    water_mask=water_mask)
 
-            gust_fractions.append(float((gm.score >= 0.75).mean()))
-            calm_fractions.append(float((gm.score <= -0.75).mean()))
+            denom = float(water_mask.mean()) if water_mask is not None else 1.0
+            denom = max(denom, 1e-6)
+            gust_fractions.append(float((gm.score >= 0.75).mean()) / denom)
+            calm_fractions.append(float((gm.score <= -0.75).mean()) / denom)
 
             if prev_score is not None:
                 corr = float(np.corrcoef(prev_score.ravel(), gm.score.ravel())[0, 1])

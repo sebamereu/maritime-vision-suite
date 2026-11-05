@@ -44,3 +44,28 @@ def test_detect_frame_pair_combines_both_signals():
 
     assert gm.flow_z is not None
     assert gm.score.shape == (64, 64)
+
+
+def test_detect_single_frame_with_water_mask_zeroes_non_water_pixels():
+    rng = np.random.default_rng(2)
+    frame = np.clip(128 + rng.integers(-40, 40, size=(64, 64, 3)), 0, 255).astype(np.uint8)
+    # "sky" (top half): extreme, high-contrast noise that would otherwise
+    # dominate the frame's roughness statistics
+    frame[:32] = np.clip(128 + rng.integers(-200, 200, size=(32, 64, 3)), 0, 255).astype(np.uint8)
+    mask = np.zeros((64, 64), dtype=bool)
+    mask[32:] = True  # bottom half is "water"
+
+    gm = detect_single_frame(frame, water_mask=mask)
+
+    assert np.all(gm.score[:32] == 0)  # non-water scored as neutral
+    assert gm.water_mask is mask
+
+
+def test_zone_mask_forces_non_water_pixels_to_neutral():
+    score = np.array([[5.0, 5.0], [5.0, 5.0]])  # would all be "gust" without a mask
+    mask = np.array([[True, False], [True, False]])
+    gm = GustMap(score=score, texture_z=score, flow_z=None, water_mask=mask)
+
+    zones = zone_mask(gm, gust_threshold=1.0, calm_threshold=-1.0)
+
+    assert zones.tolist() == [[1, 0], [1, 0]]

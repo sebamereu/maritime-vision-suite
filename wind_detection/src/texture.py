@@ -10,13 +10,12 @@ roughness at all.
 """
 import cv2
 import numpy as np
+from zscore import zscore
 
 
-def roughness_map(frame_bgr: np.ndarray, patch_size: int = 32, blur_sigma: float = 8.0) -> np.ndarray:
-    """Return a per-pixel z-scored roughness map, same height/width as
-    the input. Positive values = rougher than this frame's average,
-    negative = smoother. Z-scoring per frame (not a fixed scale) is
-    what makes this relative rather than absolute.
+def roughness_energy(frame_bgr: np.ndarray, patch_size: int = 32, blur_sigma: float = 8.0) -> np.ndarray:
+    """Raw (un-normalized) local texture energy, same height/width as
+    the input. Higher = more small-scale detail in that patch.
     """
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
 
@@ -29,9 +28,20 @@ def roughness_map(frame_bgr: np.ndarray, patch_size: int = 32, blur_sigma: float
     # Local energy of that detail, averaged over a patch -- a single
     # bright pixel isn't "rough", a patch full of small bright/dark
     # transitions is.
-    energy = cv2.boxFilter(highpass ** 2, ddepth=-1, ksize=(patch_size, patch_size))
+    return cv2.boxFilter(highpass ** 2, ddepth=-1, ksize=(patch_size, patch_size))
 
-    mean, std = float(energy.mean()), float(energy.std())
-    if std < 1e-6:
-        return np.zeros_like(energy)
-    return (energy - mean) / std
+
+def roughness_map(frame_bgr: np.ndarray, patch_size: int = 32, blur_sigma: float = 8.0,
+                   water_mask: np.ndarray | None = None) -> np.ndarray:
+    """Return a per-pixel z-scored roughness map, same height/width as
+    the input. Positive values = rougher than this frame's average,
+    negative = smoother. Z-scoring per frame (not a fixed scale) is
+    what makes this relative rather than absolute.
+
+    If `water_mask` is given (same H x W, truthy = water), the mean/std
+    used for z-scoring are computed from water pixels only, and
+    non-water pixels are reported as 0 (neutral) rather than scored
+    against a distribution they aren't part of.
+    """
+    energy = roughness_energy(frame_bgr, patch_size=patch_size, blur_sigma=blur_sigma)
+    return zscore(energy, water_mask)

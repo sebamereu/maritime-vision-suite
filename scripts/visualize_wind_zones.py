@@ -42,7 +42,15 @@ def main():
     parser.add_argument("--gust-threshold", type=float, default=0.5)
     parser.add_argument("--calm-threshold", type=float, default=-0.3)
     parser.add_argument("--output", default="data/outputs/wind_zone_overlays")
+    parser.add_argument("--segmentation-checkpoint", default=None,
+                         help="if given, mask to water-only using this segmentation/ "
+                              "checkpoint before scoring (see detect_wind_zones.py)")
     args = parser.parse_args()
+
+    masker = None
+    if args.segmentation_checkpoint:
+        from water_mask import WaterMasker
+        masker = WaterMasker(args.segmentation_checkpoint)
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
@@ -67,14 +75,18 @@ def main():
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         if prev_gray is not None and frame_idx in sample_at:
-            gm = detect_frame_pair(prev_gray, frame, gray)
+            water_mask = masker.predict(frame) if masker else None
+            gm = detect_frame_pair(prev_gray, frame, gray, water_mask=water_mask)
             mask = zone_mask(gm, gust_threshold=args.gust_threshold,
                               calm_threshold=args.calm_threshold)
             overlay = draw_overlay(frame, mask)
             out_path = output_dir / f"frame_{frame_idx:05d}.jpg"
             cv2.imwrite(str(out_path), overlay)
-            print(f"Saved {out_path} (gust frac {float((mask == 1).mean()):.1%}, "
-                  f"calm frac {float((mask == -1).mean()):.1%})")
+
+            denom = float(water_mask.mean()) if water_mask is not None else 1.0
+            denom = max(denom, 1e-6)
+            print(f"Saved {out_path} (gust frac of water {float((mask == 1).mean()) / denom:.1%}, "
+                  f"calm frac of water {float((mask == -1).mean()) / denom:.1%})")
             saved += 1
 
         prev_gray = gray

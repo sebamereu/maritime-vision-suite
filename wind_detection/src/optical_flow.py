@@ -9,6 +9,7 @@ like one).
 """
 import cv2
 import numpy as np
+from zscore import zscore
 
 
 def dense_flow(prev_gray: np.ndarray, curr_gray: np.ndarray) -> np.ndarray:
@@ -22,21 +23,25 @@ def dense_flow(prev_gray: np.ndarray, curr_gray: np.ndarray) -> np.ndarray:
     )
 
 
-def flow_variability_map(flow: np.ndarray, patch_size: int = 32) -> np.ndarray:
-    """Return a per-pixel z-scored map of *local variance* in flow
-    magnitude, same height/width as the flow field. Rougher water has
-    locally inconsistent ripple motion (high variance); smooth water
-    moves more uniformly (low variance) -- this is about consistency
-    of motion within a patch, not raw speed, so it isn't fooled by the
-    whole frame drifting (e.g. camera motion) uniformly.
+def flow_local_variance(flow: np.ndarray, patch_size: int = 32) -> np.ndarray:
+    """Raw (un-normalized) local variance of flow magnitude, same
+    height/width as the flow field. Higher = ripple motion within that
+    patch is locally inconsistent (characteristic of rougher water);
+    lower = motion is locally uniform. This is about consistency of
+    motion within a patch, not raw speed, so it isn't fooled by the
+    whole frame drifting uniformly (e.g. camera motion).
     """
     magnitude = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
-
     mean_sq = cv2.boxFilter(magnitude ** 2, ddepth=-1, ksize=(patch_size, patch_size))
     mean = cv2.boxFilter(magnitude, ddepth=-1, ksize=(patch_size, patch_size))
-    local_var = np.clip(mean_sq - mean ** 2, 0, None)
+    return np.clip(mean_sq - mean ** 2, 0, None)
 
-    m, std = float(local_var.mean()), float(local_var.std())
-    if std < 1e-6:
-        return np.zeros_like(local_var)
-    return (local_var - m) / std
+
+def flow_variability_map(flow: np.ndarray, patch_size: int = 32,
+                          water_mask: np.ndarray | None = None) -> np.ndarray:
+    """Return a per-pixel z-scored map of local flow-magnitude variance.
+    See texture.roughness_map for the water_mask semantics -- same
+    pattern: normalize only against water pixels when a mask is given.
+    """
+    local_var = flow_local_variance(flow, patch_size=patch_size)
+    return zscore(local_var, water_mask)

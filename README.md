@@ -36,11 +36,13 @@ point.
   AC75-specific free imagery is too scarce for training, only for
   testing (see Datasets below)
 - [x] **Wind-zone detection (unsupervised)** — see below. Texture +
-  optical-flow gust/calm segmentation implemented and tested on real
-  open-water footage; real anemometer-correlated validation (the
-  methodology originally planned here) is **not possible with this
-  project's data** — there's no boat, no sensors, no synced footage —
-  and that's stated plainly below rather than faked
+  optical-flow gust/calm segmentation, now masked to water-only using
+  the segmentation stage's own output (fixes sky/coastline false
+  positives; surf foam is a separate, still-open gap). Real
+  anemometer-correlated validation (the methodology originally planned
+  here) is **not possible with this project's data** — there's no
+  boat, no sensors, no synced footage — and that's stated plainly
+  below rather than faked
 - [ ] Quantitative wind speed/direction estimation from wave state —
   exploratory, reported with explicit error bars against real wind data,
   not sold as anemometer-equivalent
@@ -525,30 +527,51 @@ kind of high-frequency texture and locally inconsistent motion the
 method looks for, so it can't yet tell "rough because of wind over
 open water" from "rough for an unrelated physical reason." This isn't
 a tuning problem with better thresholds; it's a missing precondition.
-**The fix is already built elsewhere in this project**: run this stage
-only inside the water mask the segmentation model (`segmentation/`)
-already produces, instead of over the whole frame — not yet wired
-together, left as the next integration step rather than papered over.
+
+**The sky/coastline half of that is now fixed**, by wiring in exactly
+the fix described above instead of leaving it as a plan:
+`wind_detection/src/water_mask.py` runs the trained segmentation
+checkpoint (`segmentation/`, water = class 1) and restricts both
+texture and optical-flow scoring — critically, including the z-score
+normalization itself, not just a post-hoc crop — to water pixels only.
+Non-water pixels are reported as neutral, not scored.
+
+```bash
+python scripts/detect_wind_zones.py --video data/datasets/wind_test_videos/beach_waves_aerial.mp4 \
+    --segmentation-checkpoint data/checkpoints/tiny_unet.pt
+python scripts/visualize_wind_zones.py --video data/datasets/wind_test_videos/beach_waves_aerial.mp4 \
+    --segmentation-checkpoint data/checkpoints/tiny_unet.pt --n-samples 5
+```
+
+![before and after masking to water only](docs/examples/wind_zone_masked_comparison.jpg)
+
+Same frame, before and after: the sky band and the coastline/hillside
+are no longer colored at all — correctly excluded, not scored as
+either gust or calm. **This is a partial fix, not a full one, and the
+remaining failure is visible in the same image**: the surf foam
+breaking on the beach (bottom-left, both panels) is still flagged red.
+That's not a bug in the masking — the segmentation model correctly
+calls breaking surf "water" (it physically is), but wave breakup from
+shallow-water surf is a different phenomenon from wind roughening open
+water, and nothing in this stage distinguishes the two. Fixing that
+would need either excluding the immediate shoreline by geometry/depth,
+or a signal that can tell "water agitated by the seabed" from "water
+agitated by wind" — neither is attempted here.
 
 **Known failure modes, documented rather than avoided**: sun glare
 (specular reflection reads as extreme local texture, indistinguishable
 from a gust without more context — shown above, found in the
-"success" example itself, not a hypothetical), surf/coastline as shown
-above, and — untested, since there's no footage of it — mast sway or
-camera vibration, which would inject motion into the optical-flow
-signal that has nothing to do with the water at all.
+"success" example itself, not a hypothetical, and not fixed by water
+masking since glare sits on real water), surf/coastline (coastline now
+fixed, surf foam not, as just shown), and — untested, since there's no
+footage of it — mast sway or camera vibration, which would inject
+motion into the optical-flow signal that has nothing to do with the
+water at all.
 
-At this point every example image in this section shows a failure mode
-rather than a clean win. That's the honest state of this stage: a
-working, internally-consistent method with no case yet demonstrated
-where it can be trusted without a human checking the source frame.
-
-Run it yourself:
-
-```bash
-python scripts/detect_wind_zones.py --video data/datasets/wind_test_videos/beach_waves_aerial.mp4
-python scripts/visualize_wind_zones.py --video data/datasets/wind_test_videos/beach_waves_aerial.mp4 --n-samples 5
-```
+That's the honest state of this stage: masking closed one specific,
+demonstrated gap (sky/coastline treated as water), sun glare and surf
+foam remain open, and nothing here has been shown to work without a
+human checking the source frame.
 
 ## Datasets
 
